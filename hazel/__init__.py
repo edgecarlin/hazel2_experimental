@@ -3,6 +3,7 @@ __author__ = "Andres Asensio Ramos"
 
 from .atmosphere import *
 from .model import *
+from .modelSynth import *
 from .configuration import *
 from .spectrum import *
 from .multiprocess import *

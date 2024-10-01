@@ -10,7 +10,7 @@ from hazel.exceptions import NumericalErrorHazel
 import copy
 
 
-__all__ = ['ntr_list','Hazel_atmosphere']
+__all__ = ['ntr_array','Hazel_atmosphere']
 
 class ntr_array:    # A simple class
     def __init__(self, ntrs,val):
@@ -424,7 +424,7 @@ class Hazel_atmosphere(General_atmosphere):
         hIn = self.height
         tau1In = self.parameters['tau']
         anglesIn = self.spectrum.los
-        transIn = self.line_to_index[self.active_line]  #This was defined in en add_spectral/um
+        transIn = self.line_to_index[self.active_line]  #This was defined in add_spectral/um
         mltp=self.spectrum.multiplets #only for making code shorter below
         lambdaAxisIn = self.wvl_axis - mltp[self.active_line]        
         nLambdaIn = len(lambdaAxisIn)

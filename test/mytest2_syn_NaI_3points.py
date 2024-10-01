@@ -7,7 +7,8 @@ nx=150
 p1,p0=np.ones(nx),np.zeros(nx) 
 
 #----------------------------------------------------------------------------------
-m1 = hazel.Model(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
+#m1 = hazel.Model(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
+m1 = hazel.ModelRT(atomfile='sodium_hfs.atom',apmosekc='1110')#only synthesis 
 
 cdic={'ref frame': 'LOS'}#common args to all chromospheres
 

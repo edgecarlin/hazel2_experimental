@@ -15,7 +15,9 @@ ap-mo-se-nc --> atompol, magopt, stimem, nocoh = 1, 1, 1, 0
 
 dcol=[0.0,0.0,0.0]  #D^(K=1 and 2)=delta_collision, D^(K=1),D^(K=2)
 
-synMode = 5 #Opt.thin (0), DELOPAR (3),  EvolOp (5)
+synMode = 5 #DELOLIN with or without absorption (Opt.thin) (0), 
+DELOPAR (1), DELO-PARABOLLIC (2), DELO-BEZIER(3), 
+Hermite (4), EvolOp_O0 (5), Magnus_O1(6), Magnus_O2 (7)
 '''
 #----------------------------------------------------------------------------------
 m1 = hazel.Model(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
