@@ -170,16 +170,20 @@ class Hazel_atmosphere(General_atmosphere):
         return Bx,By,Bz        
 
 
-    def get_B_Hazel(self,B1,B2,B3):#pars[0],pars[1],pars[2]
+    def get_B_Hazel(self,B1,B2,B3):
         '''
         Transform magnetic field parameters to vertical reference frame 
         in spherical coordinates, which is the Hazel working system.
         Output provides both cartesian and spherical coordinates
         in case both are needed (I would leave just spherical).
         '''
-        if (self.coordinates_B == 'cartesian'):
+        rflos=self.reference_frame
+        coordmag=self.coordinates_B
+        #if interp_as_sph:coordmag='spherical'
+        
+        if (coordmag == 'cartesian'):
             # Cartesian - LOS : just carry out the rotation in cartesian geometry and transform to spherical
-            if (self.reference_frame == 'line-of-sight'):
+            if (rflos == 'line-of-sight'):
                 Bx,By,Bz=self.los_to_vertical(B1,B2,B3) #here Bi would be cartesian Bx,By,Bz in LOS
             else:# Cartesian - vertical : do nothing
                 Bx,By,Bz=B1,B2,B3
@@ -187,14 +191,14 @@ class Hazel_atmosphere(General_atmosphere):
             # Transform to spherical components in the vertical reference frame which are those used in Hazel
             B,thB,phiB=self.cartesian_to_spherical(Bx,By,Bz) #from cartesian vertical to spherical vertical
 
-        if (self.coordinates_B == 'spherical'):
+        if (coordmag == 'spherical'):
             # Spherical - vertical by default: do nothing but get cartesians .
             # we assume vertical but result is overwritten in next block if it is not like that
             Bx,By,Bz=self.spherical_to_cartesian(B1,B2,B3) #delete this line if Bx,By,Bz not needed in the code 
             B,thB,phiB= B1,B2,B3
 
             # Spherical - LOS : transform to cartesian, do rotation to vertical and come back to spherical
-            if (self.reference_frame == 'line-of-sight'):
+            if (rflos == 'line-of-sight'):
                 Bx_los,By_los,Bz_los=self.spherical_to_cartesian(B,thB,phiB)
                 Bx,By,Bz=self.los_to_vertical(Bx_los,By_los,Bz_los)
                 # To spherical comps in vertical frame as required in Hazel
@@ -241,10 +245,10 @@ class Hazel_atmosphere(General_atmosphere):
 
         return pars,kwds
 
-    def reset_pars(self,selec,ksel,nonmag,ormag,mag=[None,None,None]):
+    def reset_pars(self,selec,ksel,nonmag,ormag,mag=None):
         #selected only can contain non mag pars here:
         #['tau','v','deltav','beta','a','j10','j20f']+'nbar'
-        if mag[1] is not None:#mag should all be in vertical reference frame always
+        if mag is not None:#mag should all be in vertical reference frame always
             self.parameters['B'],self.parameters['thB'],self.parameters['phiB']=mag
             self.dna['B1'],self.dna['B2'],self.dna['B3']= ormag
         
@@ -261,7 +265,7 @@ class Hazel_atmosphere(General_atmosphere):
             self.dna[key]=nonmag[ksel[kk]-3]
 
         return
-    def set_parameters(self, pars, ff=1.0,j10=None,j20f=None,nbar=None,m=None):
+    def set_parameters(self, pars, ff=1.0,j10=None,j20f=None,nbar=None):
         """
         Set the parameters of this model chromosphere
         Now it CREATES DNA combining pars with ff,j10j20f,nbar.
@@ -269,6 +273,7 @@ class Hazel_atmosphere(General_atmosphere):
         We store dna pars as a dictionary with keys 'B1','B2','B3','tau','v','deltav','beta','a','ff', 'j10','j20f','nbar' 
         Other choice could have been as a LIST adding extra pars to the pars list with:
         dna=pars.append(ff,list(self.j10.vals),list(self.j20f.vals),list(self.nbar.vals)) 
+        DNA stays keeping values that were originally input from dlims
 
         Parameters 
         ----------
@@ -285,9 +290,12 @@ class Hazel_atmosphere(General_atmosphere):
         -------
         None
         """
+        #we fill values in both magnetic coord systems 
+        #(but only with vertical ref system), because it is useful for the user
         self.parameters['B'],self.parameters['thB'],self.parameters['phiB'], \
         self.parameters['Bx'],self.parameters['By'],self.parameters['Bz']= \
-        self.get_B_Hazel(pars[0],pars[1],pars[2]) 
+        self.get_B_Hazel(pars[0],pars[1],pars[2])#,interp_as_sph=inmag) 
+        
 
         for kk,key in enumerate(['tau','v','deltav','beta','a']):
             self.parameters[key] = pars[3+kk]
@@ -297,9 +305,9 @@ class Hazel_atmosphere(General_atmosphere):
         self.j20f.float_to_ntr_array(j20f,'j20f')
         self.nbar.float_to_ntr_array(nbar,'nbar')
         
-        #dna memory exposed to / required for future mutations
         for kk,key in enumerate(['B1','B2','B3','tau','v','deltav','beta','a']):
             self.dna[key] = pars[kk]
+             
         self.dna['ff']=ff
         self.dna['j10']=self.j10.vals
         self.dna['j20f']=self.j20f.vals
@@ -314,9 +322,9 @@ class Hazel_atmosphere(General_atmosphere):
                     self.parameters[k] = np.clip(v, self.ranges[k][0] + 1e-8, self.ranges[k][1] - 1e-8)
         
 
-    def set_pars(self, pars,ff=1.0,j10=None,j20f=None,nbar=None,m=None):
+    def set_pars(self, pars,ff=1.0,j10=None,j20f=None,nbar=None):
         '''Alias to set_parameters'''
-        return self.set_parameters(pars,ff,j10=j10,j20f=j20f,nbar=nbar,m=m)
+        return self.set_parameters(pars,ff,j10=j10,j20f=j20f,nbar=nbar)
 
 
 

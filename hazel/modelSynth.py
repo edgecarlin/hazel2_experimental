@@ -1012,18 +1012,17 @@ class ModelRT(object):
         self.use_analytical_RF = False
 
 
-        # Check that number of pixels is the same for all atmospheric files if in synthesis mode
-        if (self.working_mode == 'synthesis'):
-            n_pixels = [v.n_pixel for k, v in self.atmospheres.items()]
-            all_equal = all(x == n_pixels[0] for x in n_pixels)
-            if (not all_equal):
-                for k, v in self.atmospheres.items():
-                    self.logger.info('{0} -> {1}'.format(k, v.n_pixel))
-                raise Exception("Files with model atmospheres do not contain the same number of pixels")
-            else:
-                if (self.verbose >= 1):
-                    self.logger.info('Number of pixels to read : {0}'.format(n_pixels[0]))
-                self.n_pixels = n_pixels[0]
+        # Check that number of pixels is the same for all atmospheric files in synthesis mode
+        n_pixels = [v.n_pixel for k, v in self.atmospheres.items()]
+        all_equal = all(x == n_pixels[0] for x in n_pixels)
+        if (not all_equal):
+            for k, v in self.atmospheres.items():
+                self.logger.info('{0} -> {1}'.format(k, v.n_pixel))
+            raise Exception("Files with model atmospheres do not contain the same number of pixels")
+        else:
+            if (self.verbose >= 1):
+                self.logger.info('Number of pixels to read : {0}'.format(n_pixels[0]))
+            self.n_pixels = n_pixels[0]
         
 
         filename = os.path.join(os.path.dirname(__file__),'data/LINEAS')
@@ -1047,8 +1046,7 @@ class ModelRT(object):
         self.output_handler.close()
 
     def write_output(self, randomization=0):
-        if (self.working_mode == 'synthesis'):
-            self.flatten_parameters_to_reference(cycle=0)        
+        self.flatten_parameters_to_reference(cycle=0)        
         self.output_handler.write(self, pixel=0, randomization=randomization)
 
 
@@ -1097,8 +1095,7 @@ class ModelRT(object):
    
 
         if (los is None):
-            if (self.working_mode == 'synthesis'):
-                raise Exception("You need to provide the LOS for spectral region {0}".format(name))
+            raise Exception("You need to provide the LOS for spectral region {0}".format(name))
         else:
             if (self.verbose >= 1):
                 self.logger.info('  - Using LOS {0}'.format(los))
@@ -1618,27 +1615,35 @@ class ModelRT(object):
             for kk,key in enumerate(selected):
                 p2D[ksel[kk],:]=np.array( [dlims[key][0],dlims[key][1] ] )
 
+
         if len(selected)==len(alls):#set chromospheric cells from pars2D for all parameters
             for ii in range(Ncells):
                 self.chromospheres[ii].set_pars(p2D[0:8,ii],dlims['ff'][1],j10=p2D[8,ii],j20f=p2D[9,ii],nbar=dlims['nbar'][1])
+            #creates and fill the matrix of Hazel magnetic parameters for all points
+            self.B2D=np.array((3,Ncells))
+            if (self.chromospheres[0].coordinates_B == 'spherical'):self.B2D=p2D[0:3,:]
+            else:self.B2D=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])
+
         else:#set chromospheric cells from pars2D all at once for given parameters            
             #reconstruct ALL B pars for ALL atm cells from mutated B pars
-            Bm=[None]*Ncells
-            Bt,Bc=Bm,Bm
+            Bhaz=None
             if ('B1' in selected) or ('B2' in selected) or ('B3' in selected):
-                Bm,Bt,Bc=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])#return a convenient tuple (Bmod,thB,phiB)
+                if (self.chromospheres[0].coordinates_B == 'spherical'):self.B2D=p2D[0:3,:]
+                else:self.B2D=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])
+                Bhaz=self.B2D
                 for elem in ['B1','B2','B3']:
                     if elem in selected:selected.remove(elem)#remove magnetic keys from selected
             for i in range(Ncells):
                 # nbar & ff do not change with height but nbar can mutate ...dlims['ff'][1]
                 nonmag=list(p2D[3:10,i])+[dlims['nbar'][1]]#ff not included 
-                self.chromospheres[i].reset_pars(selected,ksel,nonmag,p2D[0:3,i],mag=(Bm[i],Bt[i],Bc[i]) )           
+                self.chromospheres[i].reset_pars(selected,ksel,nonmag,p2D[0:3,i],mag=Bhaz[:,i])           
 
 
         if pkws['plotit']!=0:self.plot_funcatmos(dlims,hz,atmat=p2D,**pkws)
         #...,var=pkws['var'],method=pkws['method'])
 
         return hz
+
 
 
     def remove_unused_atmosphere(self):
@@ -1762,8 +1767,7 @@ class ModelRT(object):
 
     def synthesize_spectrum(self, spectral_region, method, stokes=None,stokes_out = None,fractional=False):
         """
-        Synthesize all atmospheres of a spectral region and normalize to continuum of quiet Sun at disk center
-        Photospheres must be first lower and unique, stray atms should be always last higher
+        Synthesize chromospheres of spectral region and normalize to continuum of quiet Sun at disk center
         Stokes and stokes_out are local variables initialized in header (not intended to be inputs!).
         atms_in_spectrum makes unnecessary to check the asp spectral region inside the double loop below
         -----------Parameters:----------
@@ -1771,34 +1775,47 @@ class ModelRT(object):
         method: synthesis method for solving the RTE
         fractional: to calculate emergent Stokes profiles as normalized to continuum or as divided by I(lambda)
         --------------------------------
-        for a topology c0->c1+c2 the following inside the loops  gives:
-        print(self.atms_in_spectrum[spectral_region])  #0 , [['c0'], ['c1','c2']] #all the chain of atmospehres
-        print(n,order)        #0,['c0'] and 1,['c1','c2'] #the current layer
-        print(k,atm)            #0,c0 / 0,c1 1,c2 (con chX los nombres(strings) de las atms)
         """        
-        for n, order in enumerate(self.atms_in_spectrum[spectral_region] ): #n run layers along the ray
-            for k, atm in enumerate(order):  #k runs subpixels of topologies c1+c2                                                  
-                self.atmospheres[atm].line_to_index=self.line_to_index#update line_to_index in atm/hazel synthesize with that in add_spectral. 
-                asp=self.atmospheres[atm].spectrum #for local compact notation
 
-                xbot, xtop = self.atmospheres[atm].wvl_range
-                if (n > 0 and k == 0):stokes_out = stokes[:,xbot:xtop] #Update boundary cond. for layers above bottom one      
-                
-                #chromospheres
-                if (k == 0):#1st subelement of c1+c2 layer, or just the element in single layers 
-                    stokes, asp.eps[n+k,:,:],asp.eta[n+k,:,:],asp.stim[n+k,:,:],error = \
-                    self.atmospheres[atm].synthazel(method,stokes=stokes_out, nlte=self.use_nlte)#For single chromospheres
-                else:#if c1+c2, adds up stokes of all sub-pixels  
-                    tmp,asp.eps[n+k,:,:],asp.eta[n+k,:,:],asp.stim[n+k,:,:], error = \
-                    self.atmospheres[atm].synthazel(method,stokes=stokes_out,nlte=self.use_nlte)
-                    stokes += tmp#DOUBT:the sum of contribs of all supixels should be done at the end of the transfer
-                    #-------------------------------------------------------------------
-        i0=hazel.util.i0_allen(np.mean(asp.wavelength_axis[xbot:xtop]), self.muAllen)  #at mean wavelength
-        #i0=hazel.util.i0_allen(asp.wavelength_axis[xbot:xtop], self.muAllen)[None,:] #at each wavelength
+        if method==5:dn=3
+        else:dn=1
+        #nsteps:integer number of blocks of "dn" cells
+        #kind: index qunatifying the remaining cells. Can be 0,1,,..,dn-1
+        nsteps,kind=np.divmod(self.n_chromospheres,dn)
+        if nsteps==0:raise Exception("WARNING: Multistep RT methods require more points in height.")            
+        if kind!=0:nsteps+=1#add the last step for the remaining cells
+        #Multistep with step dn with Ncells-1 as last point:
+        #step: ini:end
+        #0: 0:dn  (for dn=3 : 0,1,2)
+        #1: dn:2*dn
+        #nk-1(last): (nk-1)*dn:(nk-1)*dn+kind
+
+        #for n in range(nsteps): #n run layers along the ray
+        for n, order in enumerate(self.atms_in_spectrum[spectral_region] ): #n run layers along the ray
+            #update line_to_index in atm/hazel synthesize with that in add_spectral. 
+            self.chromospheres[n].line_to_index=self.line_to_index
+            for k, atm in enumerate(order):  #k runs subpixels of topologies c1+c2                              
+                if (k != 0):raise Exception("WARNING: Subpixel components are not yet allowed in this Model version.")            
+
+        #same for all Hazel chromospheres in a same ray, so can be outside the loop
+        xbot, xtop = self.chromospheres[0].wvl_range
+        
+        for n in range(nsteps): #n run layers along the ray
+            ini=n*dn
+            end=ini+dn#(n+1)*dn
+            if n==nsteps:end=ini+kind
+
+            sp=self.spectrum[spectral_region] #pointer for local compact notation
+            stokes,sp.eps[ini:end,:,:],sp.eta[ini:end,:,:],sp.stim[ini:end,:,:],error = \
+            self.synth_model(ini,end,method,stokes=stokes_out, nlte=self.use_nlte)#For single chromospheres
+            #if (n > 0 ):Update boundary cond. for layers above bottom one      
+            stokes_out = stokes[:,xbot:xtop] 
+        #-------------------------------------------------------------------
+        i0=hazel.util.i0_allen(np.mean(sp.wavelength_axis[xbot:xtop]), self.muAllen)  #at mean wavelength
+        #i0=hazel.util.i0_allen(sp.wavelength_axis[xbot:xtop], self.muAllen)[None,:] #at each wavelength
 
         if fractional:i0=stokes[0,:] #when fractional, P(lambda)/I(lambda) will be stored in spectrum object
-
-        asp.stokes[:,xbot:xtop] = stokes/ i0
+        sp.stokes[:,xbot:xtop] = stokes/ i0
 
     def set_nlte(self, option):
         """
@@ -1865,4 +1882,169 @@ class ModelRT(object):
                 if obj is None:TBD=1                
             
         #return ax
+
+    def synth_model(self,ini,end,method,stokes=None, nlte=None,epsout=None, etaout=None, stimout=None):
+        """
+        Carry out the synthesis and returns the Stokes parameters directly from python user main program.
+        ----------Parameters----------
+        method = synthesis method for Hazel
+        stokes : float
+        An array of size [4 x nLambda] with the input Stokes parameter.                
+        -------Returns-------
+        stokes : float
+        Stokes parameters, with the first index containing the wavelength displacement and the remaining
+                                    containing I, Q, U and V. Size (4,nLambda)        
+        """
+
+        
+        self.spectrum.synmethods.append(method) #here method is already a number
+
+        #REMEMBER THAT ALL THE SELFS HERE WERE REFERRING TO A CELL ATMOSPHERE
+        #BECAUSE THIS ROUTINE WAS IN CHROMOSPHRE.PY
+        for nk in range(ini,end):
+            BIn = self.B2D[:,ini:end]# 3 x Ncells
+        
+        hIn = self.height
+        tau1In = self.parameters['tau']
+        anglesIn = self.spectrum.los
+        transIn = self.line_to_index[atm.active_line]  #This was defined in add_spectral/um
+        mltp=self.spectrum.multiplets #only for making code shorter below
+        lambdaAxisIn = self.wvl_axis - mltp[self.active_line]        
+        nLambdaIn = len(lambdaAxisIn)
+                        
+        '''
+        # Renormalize nbar so that its CLV is the same as that of Allen, but with a decreased I0
+        # If I don't do that, fitting profiles in the umbra is not possible. The lines become in
+        # emission because the value of the source function, a consequence of the pumping radiation,
+        # is too large. In this case, one needs to use beta to reduce the value of the source function.
+        ratio = boundaryIn[0,0] / i0_allen(mltp[self.active_line], self.spectrum.mu)
+
+        '''
+        '''-----------EDGAR: THOUGHTS CONCERNING BOUNDARY CONDITIONS------------------------------
+        
+        Concerning the above comment and the following code...
+        1) In the first layer of the transfer (where boundary cond. are applied), the value of ratio 
+        ends up being the value of I set in boundary=[1,0,0,0], because one first multiplies the intensity
+        boundary component by i0Allen, and later divides it again in ratio, hence it has no effect other
+        than setting ratio to boundary[0]=1. This 1 is a normalization corresponding to the value 
+        that the user wants to assume for the continuum intensity(e.g. 1 for Allen continuum at a given mu, 
+        or smaller values for the lower continuum intensities such as that of an umbra). 
+        Then, this value should be inferred or even inverted for fitting observations, 
+        but in synthesis we provide it.
+
+        2) The next block of code also sets the value of BoundaryIn for Hazel. The value of BoundaryIn 
+        entering Hazel in the very first boundary layer was here the i0Allen with spectral dependence 
+        because boundary=[1,0,0,0] is multiplied by i0Allen and broadcasted to wavelength in the spectrum
+        methods subroutines. In upper layers the stokes in boundaryIn is the result of previous transfer 
+        but the intensity value at the wings (boundaryIn[0,0,]) used to define 'ratio' is still the continuum intensity
+        set to 1 by the user in the boundary keyword because transfer does not affect the far wings in absence
+        of continuum opacity.
+
+        3) Then, one could think of avoiding to multiply and divide by i0Allen by just setting ratio 
+        directly to the spectrum.boundary for intensity set by the user(which is the fraction, normally 1, 
+        of the i0Allen at mu; in a dark background, of course this number should be lower, but this is set 
+        ad hoc by the user or ideally by the inversion code.)
+        However, we have to multiply and divide by I0Allen in every step in order to use the updated boundaryIn of the 
+        layer. Improving this is not important given the approximations associated to the anisotropy (see below).
+
+        4)We want the possibility of defining the boundaryIn for Hazel as the spectrum of i0Allen 
+        or, more generally, as spectral profiles introduced by the user for every Stokes parameter 
+        (for instance coming from observations or from ad hoc profiles for experiments). 
+
+        So we reuse the keyword boundary to allow the possibility 
+        of containing a provided spectral dependence or just 4 numbers (that then would be broadcasted
+        in wavelength as constant profiles as before).
+        Complementing the boundary keyword, we define the new keyword i0fraction,
+        which is just one number representing the fraction of i0Allen continuum for intensity 
+        and for normalization of Stokes vector to Icontinuum, but this keyword .
+
+        It seems correct to modify nbar as of the number of photons of continuum relative to I0Allen,
+        but this is just an approximation limited by how Hazel includes the anisotropy. 
+        The nbar does not belong to a layer, but to the rest of the 
+        atmopshere that illuminates the layer because nbar is the number of photons used to estimate radiation field tensors in
+        the SEE. One then can argue that nbar for only one layer is related to the background continuum
+        but, for multiple layers, the lower layers can modify the nbar of subsequent upper layers, which 
+        is inconsistent with using the same Allen anisotropy for all layers. 
+        Hence we would like to estimate this variation, realizing also that the nbar is not the same 
+        for line center than for the wings. As this theory is limited to zero order we just 
+        use the continuum because the spectral variation is not considered (flat spectrum aproximation).
+        The above inconsistency is an intrinsic limitation of Hazel that is directly associated to the way 
+        we introduce the radiation field tensor (the anisotropy) in the calculations. In more general cases 
+        we calculate the anisotropy layer by layer using the intensity(and polarization) that arrives to the layer after performing the 
+        radiative transfer along surrounding shells, and thus the nbar comes implicitly set by the sourroundings 
+        and modulated in the trasnfer.  
+           
+        Here, ratio only affects nbar (hence anisotropies), but not the transfer of stokes. 
+        For the first layer, ratio=boundaryIn[0,0]/i0_allen gives a fraction without units as required for 
+        ratio and nbar.boundaryIn[0,0] is later updated from previous output and the code does that fresh 
+        division again for every subsequent layer. As boundaryIn[0,0] is the continuum intensity, it does not change 
+        appreciably with the transfer in absence of continuum opacity (Hazel still does not have it anyways).
+        But if the continuum opacity is introduced or the opacity of the previous layer
+        was large in the wings, boundaryIn[0,0] decreases along the LOS, which decreases ratio too as the transfer advances.
+        The only problem with this is that the reduction of ratio (hence of nbar) is the same for all 
+        rays in the radiation field sphere, so anisotropic transfer is not considered,as explained above.
+        In any case, as boundaryIn always has physical units in every step of the transfer, it is reasonable 
+        to divide by I0Allen to get the reamaining number of photons per mode (the fraction nbar) at every layer. 
+        
+        '''
+        #-------------------------------------------------
+        #we multiply by i0Allen to get units right. When introducing ad hoc the boundary 
+        #with spectral dependence, we shall do it normalized to I0Allen(instead of with physical units), 
+        #so still multiplication by I0Allen is necessary here.
+        #self.spectrum.boundary arrives already multiplied by i0fraction if necessary. 
+        if (stokes is None):
+            boundaryIn  = np.asfortranarray(np.zeros((4,nLambdaIn)))
+            boundaryIn[0,:] = i0_allen(mltp[self.active_line], self.spectrum.mu) #hsra_continuum(mltp[self.active_line]) 
+            boundaryIn *= self.spectrum.boundary[:,self.wvl_range[0]:self.wvl_range[1]]
+        else:            
+            boundaryIn = np.asfortranarray(stokes)
+
+        '''
+        EDGAR: the value of boundary that enters here 
+        must be Ibackground(physical units)/I0Allen (all input and output Stokes shall always be
+        relative to the Allen I0 continuum). If the first value of this quantity is 1.0 then we have 
+        an Allen background. Otherwise, that first value represents the true background 
+        continuum realtive to I0Allen which can be be a fraction  of I0Allen (i.e., is the i0fraction
+        introduced in model.py as tentative keyword). 
+
+        For spectrum.boundary=1, the boundary intensity given to Hazel synthesize routine should be
+        Iboundary = 1 *I0Allen(lambda), such that it has physical units (is not relative).
+
+        spectrum.boundary is I0(physical)/I0Allen
+        boundaryIn is then spectrum.boundary*I0Allen = I0(physical)
+        then ratio=boundaryIn/I0Allen=I0(physical)/I0Allen , 
+        which is a fraction of 1.0 (relative to the I0llen), as desired for nbarIn.
+        '''
+        ratio = boundaryIn[0,0]/ i0_allen(mltp[self.active_line], self.spectrum.mu)
+
+        #nbarIn are reduction factors of nbar Allen for every transition! This means that it has 4 elements
+        #for Helium and 2 for Sodium for instance, but this number was hardcoded to 4.
+        #In addition omegaIn was wrong because it was put to zero, meaning no anisotropy,
+        #while ones would mean that we use Allen for these pars.
+        #when different than 0.0 and 1.0 they are used as modulatory factors in  hazel
+        nbarIn = self.nbar.vals * ratio #np.ones(self.ntr) * ratio
+        omegaIn = self.j20f.vals #np.ones(self.ntr)    #Not anymore np.zeros(4) 
+        j10In = self.j10.vals   #remind j10 and j20f are vectors (one val per transition).
+
+        betaIn = self.parameters['beta']      
+
+        #-------------------------------------------------
+
+        dopplerWidthIn = self.parameters['deltav']
+        dampingIn = self.parameters['a']
+        dopplerVelocityIn = self.parameters['v']
+
+        #Check where self.index is updated. It is index of current chromosphere,from 1 to n_chromospheres. 
+        args = (self.index, method, BIn, hIn, tau1In, boundaryIn, transIn, anglesIn, nLambdaIn,
+            lambdaAxisIn, dopplerWidthIn, dampingIn, j10In, dopplerVelocityIn,
+            betaIn, nbarIn, omegaIn, self.atompol,self.magopt,self.stimem,self.nocoh,np.asarray(self.dcol) )
+        
+        #2D opt coeffs yet (not height dependent), for current slab self.index
+        l,stokes,epsout,etaout,stimout,error = hazel_code._synth(*args)
+
+        if (error == 1):raise NumericalErrorHazel()
+
+        ff = self.parameters['ff'] #include it in the return below
+        
+        return ff * stokes, epsout,etaout,stimout,error #/ hsra_continuum(mltp[self.active_line])
 

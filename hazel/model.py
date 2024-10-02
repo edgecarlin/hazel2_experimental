@@ -132,7 +132,7 @@ class Model(object):
                 'j10':[0.,0.,1.],'j20f':[0.,1.,1000.],'nbar':[0.,1.,1.]}
         self.dlims=None
         self.pars2D=None        
-
+        self.B2D=None
 
         self.plotit=plotit
         self.plotscale=3
@@ -2305,21 +2305,28 @@ class Model(object):
             for kk,key in enumerate(selected):
                 p2D[ksel[kk],:]=np.array( [dlims[key][0],dlims[key][1] ] )
 
+
         if len(selected)==len(alls):#set chromospheric cells from pars2D for all parameters
             for ii in range(Ncells):
                 self.chromospheres[ii].set_pars(p2D[0:8,ii],dlims['ff'][1],j10=p2D[8,ii],j20f=p2D[9,ii],nbar=dlims['nbar'][1])
+            #creates and fill the matrix of Hazel magnetic parameters for all points
+            self.B2D=np.array((3,Ncells))
+            if (self.chromospheres[0].coordinates_B == 'spherical'):self.B2D=p2D[0:3,:]
+            else:self.B2D=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])
+
         else:#set chromospheric cells from pars2D all at once for given parameters            
             #reconstruct ALL B pars for ALL atm cells from mutated B pars
-            Bm=[None]*Ncells
-            Bt,Bc=Bm,Bm
+            Bhaz=None
             if ('B1' in selected) or ('B2' in selected) or ('B3' in selected):
-                Bm,Bt,Bc=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])#return a convenient tuple (Bmod,thB,phiB)
+                if (self.chromospheres[0].coordinates_B == 'spherical'):self.B2D=p2D[0:3,:]
+                else:self.B2D=self.chromospheres[0].just_B_Hazel(*p2D[0:3,:])
+                Bhaz=self.B2D
                 for elem in ['B1','B2','B3']:
                     if elem in selected:selected.remove(elem)#remove magnetic keys from selected
             for i in range(Ncells):
                 # nbar & ff do not change with height but nbar can mutate ...dlims['ff'][1]
                 nonmag=list(p2D[3:10,i])+[dlims['nbar'][1]]#ff not included 
-                self.chromospheres[i].reset_pars(selected,ksel,nonmag,p2D[0:3,i],mag=(Bm[i],Bt[i],Bc[i]) )           
+                self.chromospheres[i].reset_pars(selected,ksel,nonmag,p2D[0:3,i],mag=Bhaz[:,i])           
 
 
         if pkws['plotit']!=0:self.plot_funcatmos(dlims,hz,atmat=p2D,**pkws)
