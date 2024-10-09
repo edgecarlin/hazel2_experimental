@@ -8,6 +8,7 @@ from collections import OrderedDict
 from hazel.codes import hazel_code, sir_code
 from hazel.spectrum import Spectrum
 from hazel.transforms import transformed_to_physical, physical_to_transformed, jacobian_transformation
+from hazel.util import i0_allen
 import hazel.util
 import numpy as np
 import copy
@@ -16,7 +17,7 @@ from pathlib import Path
 import scipy.stats
 import scipy.special
 import scipy.signal
-import scipy.linalg
+#import scipy.linalg
 import scipy.optimize
 import warnings
 import logging
@@ -132,6 +133,7 @@ class ModelRT(object):
                 'j10':[0.,0.,1.],'j20f':[0.,1.,1000.],'nbar':[0.,1.,1.]}
         self.dlims=None
         self.pars2D=None        
+        self.B2D, self.hz = None, None 
 
 
         self.plotit=plotit
@@ -157,7 +159,6 @@ class ModelRT(object):
         self.order_atmospheres = []        
         self.configuration = None
         self.n_cycles = 1
-        self.spectrum = []
         self.spectrum = {}  #EDGAR:self.spectrum was initialized as [] and now as {}
         self.topologies = {}#[] EDGAR: before it was a list, now it is a dictionary
         self.atms_in_spectrum={} #EDGAR: of the kind -> {'sp1': string_with_atmosphere_order_for_sp1}
@@ -583,7 +584,7 @@ class ModelRT(object):
             else:    
                 var=pkws['var']
                 if allabs[i]=='tau':var='exp'
-                self.plot_PolyFx(ax,[hz[0],hz[-1]],dlims[allabs[i]],nps=pkws['nps'],var=var,method=pkws['method'])
+                self.plot_PolyFx(ax,hz,dlims[allabs[i]],nps=pkws['nps'],var=var,method=pkws['method'])
                 
             ax.set_title(mylab(allabs[i]))
             if i >8:ax.set_xlabel(mylab('hz'))
@@ -1346,7 +1347,19 @@ class ModelRT(object):
         #return chout, tags
         return self.chromospheres, tags
 
-    def add_funcatmos(self,Ncells,ckey,hzlims=None,hz=None,topo=''):
+    def set_hz(self,hzlims=[0.,1500.],hztype='lin',Ncells=None):
+        if Ncells is None:Ncells=self.n_chromospheres        
+
+        hz = np.linspace(hzlims[0], hzlims[-1], Ncells)
+        xaux=np.linspace(0,Ncells,Ncells)#yaux is hz : yaux=np.linspace(hzlims[0],hzlims[1],Ncells)
+        if hztype=='lin':funX=xaux
+        if hztype=='parab':funX=xaux*xaux
+        xnew=np.max(xaux)*funX/np.max(funX)#np.exp(-x)
+        hz = np.interp(xnew, xaux, hz)
+        
+        return hz 
+
+    def add_funcatmos(self,Ncells,ckey,hzlims=[0.,1500.],hztype='lin',topo=''):
         '''
         Creates and add a full chromosphere made of N elemental pieces/slabs/cells
         and making certain parameters to vary according to given P-order polinomials.
@@ -1374,8 +1387,12 @@ class ModelRT(object):
         #for each cell as incoming parameter we are also setting the height scale
         #indirectly with dtau=eta_I*dz. Hence we will need to wait for eta_I before returning 
         #a meaningful value of hz scales
-        if (hz is None):hz=[0.0]*Ncells 
+        if 'hzlims' in ckey:hzlims=ckey['hzlims']
+        if 'hztype' in ckey:hztype=ckey['hztype']
+        self.n_chromospheres=Ncells
         self.hzlims=hzlims
+
+        self.hz=self.set_hz(hzlims=hzlims,hztype=hztype)
 
         #we must return topology string used later for add spectrum in the main program
         tags=[]
@@ -1398,11 +1415,11 @@ class ModelRT(object):
         '''
         #chout=[]
         for kk in range(Ncells):        
-            #chout.append(self.add_chromosphere({'name': tags[kk],'height': hz[kk],**ckey}))
-            self.chromospheres.append(self.add_chromosphere({'name': tags[kk],'height': hz[kk],**ckey}))
+            #chout.append(self.add_chromosphere({'name': tags[kk],'height': self.hz[kk],**ckey}))
+            self.chromospheres.append(self.add_chromosphere({'name': tags[kk],'height': self.hz[kk],**ckey}))
 
         #return chout, topo
-        return self.chromospheres, topo
+        return topo
 
     def fix_point_polyfit_fx(self,n, x, y, xf, yf) :
         '''Solves a system of equations that allow o determine the parameters of a polynomial 
@@ -1455,7 +1472,7 @@ class ModelRT(object):
         par,cov = curve_fit(exp_3points, xps, yps, p0=np.array([0, -1, 1]), absolute_sigma=True)
         return xps,yps,exp_3points(xx,par[0],par[1],par[2])
 
-    def plot_PolyFx(self,ax,xpl,ypl,nps=2,var='mono',method=2): 
+    def plot_PolyFx(self,ax,xx,ypl,nps=2,var='mono',hztype='lin',method=2): 
         '''This function just plots some reference polynomials and functions to 
         illustrate possible variations to be assigned to the physical variables
         or to visualize them with respect to the actual variations set.
@@ -1465,7 +1482,8 @@ class ModelRT(object):
         #fig = plt.figure()
         #ax = fig.gca()
         npoints=30
-        xx = np.linspace(xpl[0], xpl[-1], num=npoints)
+        xpl=[xx[0],xx[-1]]
+        if hztype=='lin':xx = np.linspace(xpl[0], xpl[-1], num=npoints)
 
         #array of fixed limiting points, AT LEAST including limiting interval points
         xf, yf = np.array(xpl), np.array(ypl)
@@ -1511,7 +1529,7 @@ class ModelRT(object):
         return #ax
 
 
-    def PolyFx(self,xx,xpl,ypl,nps=2,order=4,npoints=10,var='mono',method=2):
+    def PolyFx(self,xx,ypl,nps=2,order=4,npoints=10,var='mono',method=2):
         '''Get order-N polynomial function connecting points with coords xpl ypl.
         Method=monotonic uses a hardcoded nps=2. Test variations
         with plot_PolyFx function.
@@ -1519,6 +1537,8 @@ class ModelRT(object):
         xpl,ypl = [p1[0],p2[0]],[p1[1],p2[1]] --> for two points
         ''' 
         #xx = np.linspace(xpl[0], xpl[-1], num=npoints)
+        #now xpl is obtained from xx (i.e. hz) directly. Hence, this routine can be simplified
+        xpl=[xx[0],xx[-1]]
 
         #array of fixed limiting points, AT LEAST including limiting interval points
         xf, yf = np.array(xpl), np.array(ypl)
@@ -1586,18 +1606,16 @@ class ModelRT(object):
             self.check_limits(dlims,selected)#check only mutated keys
             ksel=np.zeros(len(selected),dtype=int)
             for kk,elem in enumerate(selected):ksel[kk]=alls.index(elem)
-            if hzlims is not None:self.hzlims=hzlims #mutates can reset self.hzlims
 
-        hzlims=self.hzlims#pointer for brevity
+
+        if hzlims is not None:
+            self.hzlims=hzlims #mutates can also reset self.hzlims
+            self.hz=self.set_hz(hzlims=hzlims,hztype=hztype)    
+        
+        hz=self.hz#pointer for brevity
         p2D=self.pars2D#pointer for brevity
         self.dlims=dlims#remember dlims in case mutates() is called later
         
-        hz = np.linspace(hzlims[0], hzlims[-1], Ncells)
-        if hztype=='parab':
-            xaux=np.linspace(0,Ncells,Ncells)#yaux is hz : yaux=np.linspace(hzlims[0],hzlims[1],Ncells)
-            funX=xaux*xaux
-            xnew=np.max(xaux)*funX/np.max(funX)#np.exp(-x)
-            hz = np.interp(xnew, xaux, hz)
                     
         if type(orders) is int:orders=[orders]*len(alls) 
 
@@ -1608,9 +1626,9 @@ class ModelRT(object):
                     if (orders[ksel[kk]]>0)&(self.verbose >= 1):warnings.warn("The quantity {0} is being forced to keep constant values.".format(key))
                 else:
                     if key=='tau' or key=='deltav':#create exponential or minT functions
-                        p2D[ksel[kk],:]=self.PolyFx(hz,hzlims,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
+                        p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
                     else:
-                        p2D[ksel[kk],:]=self.PolyFx(hz,hzlims,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
+                        p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
         else:  #only 2-cell case (limiting cells)
             for kk,key in enumerate(selected):
                 p2D[ksel[kk],:]=np.array( [dlims[key][0],dlims[key][1] ] )
@@ -1642,7 +1660,7 @@ class ModelRT(object):
         if pkws['plotit']!=0:self.plot_funcatmos(dlims,hz,atmat=p2D,**pkws)
         #...,var=pkws['var'],method=pkws['method'])
 
-        return hz
+        return
 
 
 
@@ -1777,7 +1795,7 @@ class ModelRT(object):
         --------------------------------
         """        
 
-        if method==5:dn=3
+        if method==5:dn=1
         else:dn=1
         #nsteps:integer number of blocks of "dn" cells
         #kind: index qunatifying the remaining cells. Can be 0,1,,..,dn-1
@@ -1803,11 +1821,15 @@ class ModelRT(object):
         for n in range(nsteps): #n run layers along the ray
             ini=n*dn
             end=ini+dn#(n+1)*dn
-            if n==nsteps:end=ini+kind
+            if n==nsteps:
+                end=ini+kind
+                print(n,dn,kind,ini,end)
+                sys.exit()
 
             sp=self.spectrum[spectral_region] #pointer for local compact notation
+            sp.synmethods.append(method)#here method is already a number
             stokes,sp.eps[ini:end,:,:],sp.eta[ini:end,:,:],sp.stim[ini:end,:,:],error = \
-            self.synth_model(ini,end,method,stokes=stokes_out, nlte=self.use_nlte)#For single chromospheres
+            self.synth_piece(ini,end,method,stokes=stokes_out, nlte=self.use_nlte)#For single chromospheres
             #if (n > 0 ):Update boundary cond. for layers above bottom one      
             stokes_out = stokes[:,xbot:xtop] 
         #-------------------------------------------------------------------
@@ -1883,7 +1905,7 @@ class ModelRT(object):
             
         #return ax
 
-    def synth_model(self,ini,end,method,stokes=None, nlte=None,epsout=None, etaout=None, stimout=None):
+    def synth_piece(self,ini,end,method,stokes=None, nlte=None,epsout=None, etaout=None, stimout=None):
         """
         Carry out the synthesis and returns the Stokes parameters directly from python user main program.
         ----------Parameters----------
@@ -1894,24 +1916,30 @@ class ModelRT(object):
         stokes : float
         Stokes parameters, with the first index containing the wavelength displacement and the remaining
                                     containing I, Q, U and V. Size (4,nLambda)        
+        self.pars2D -> ['B1','B2','B3','tau','v','deltav','beta','a','j10','j20f']
         """
-
+        dn=end-ini
         
-        self.spectrum.synmethods.append(method) #here method is already a number
+        dn=3 #DElete
+        end=ini+dn #delete
 
+        BIn = np.asfortranarray(self.B2D[:,ini:end])# 3 x dn 
+        
         #REMEMBER THAT ALL THE SELFS HERE WERE REFERRING TO A CELL ATMOSPHERE
-        #BECAUSE THIS ROUTINE WAS IN CHROMOSPHRE.PY
-        for nk in range(ini,end):
-            BIn = self.B2D[:,ini:end]# 3 x Ncells
+        #BECAUSE THIS ROUTINE WAS IN CHROMOSPHERE.PY
+        aself=self.chromospheres[ini]
         
-        hIn = self.height
-        tau1In = self.parameters['tau']
-        anglesIn = self.spectrum.los
-        transIn = self.line_to_index[atm.active_line]  #This was defined in add_spectral/um
-        mltp=self.spectrum.multiplets #only for making code shorter below
-        lambdaAxisIn = self.wvl_axis - mltp[self.active_line]        
+        hIn = self.hz[ini:end]#aself.height#self.hz[ini:end]  #aself.height --> was single height for a given atmosphere cell 
+        tau1In = self.pars2D[3,ini:end] #aself.parameters['tau']
+        
+        anglesIn = aself.spectrum.los
+        transIn = aself.line_to_index[aself.active_line]  #This was defined in add_spectral/um
+        mltp=aself.spectrum.multiplets #only for making code shorter below
+        lambdaAxisIn = aself.wvl_axis - mltp[aself.active_line]        
         nLambdaIn = len(lambdaAxisIn)
-                        
+        
+        print(ini,dn,BIn[:,0],hIn, tau1In)
+
         '''
         # Renormalize nbar so that its CLV is the same as that of Allen, but with a decreased I0
         # If I don't do that, fitting profiles in the umbra is not possible. The lines become in
@@ -1994,8 +2022,8 @@ class ModelRT(object):
         #self.spectrum.boundary arrives already multiplied by i0fraction if necessary. 
         if (stokes is None):
             boundaryIn  = np.asfortranarray(np.zeros((4,nLambdaIn)))
-            boundaryIn[0,:] = i0_allen(mltp[self.active_line], self.spectrum.mu) #hsra_continuum(mltp[self.active_line]) 
-            boundaryIn *= self.spectrum.boundary[:,self.wvl_range[0]:self.wvl_range[1]]
+            boundaryIn[0,:] = i0_allen(mltp[aself.active_line], aself.spectrum.mu) #hsra_continuum(mltp[self.active_line]) 
+            boundaryIn *= aself.spectrum.boundary[:,aself.wvl_range[0]:aself.wvl_range[1]]
         else:            
             boundaryIn = np.asfortranarray(stokes)
 
@@ -2015,36 +2043,36 @@ class ModelRT(object):
         then ratio=boundaryIn/I0Allen=I0(physical)/I0Allen , 
         which is a fraction of 1.0 (relative to the I0llen), as desired for nbarIn.
         '''
-        ratio = boundaryIn[0,0]/ i0_allen(mltp[self.active_line], self.spectrum.mu)
+        ratio = boundaryIn[0,0]/ i0_allen(mltp[aself.active_line], aself.spectrum.mu)
 
         #nbarIn are reduction factors of nbar Allen for every transition! This means that it has 4 elements
         #for Helium and 2 for Sodium for instance, but this number was hardcoded to 4.
         #In addition omegaIn was wrong because it was put to zero, meaning no anisotropy,
         #while ones would mean that we use Allen for these pars.
         #when different than 0.0 and 1.0 they are used as modulatory factors in  hazel
-        nbarIn = self.nbar.vals * ratio #np.ones(self.ntr) * ratio
-        omegaIn = self.j20f.vals #np.ones(self.ntr)    #Not anymore np.zeros(4) 
-        j10In = self.j10.vals   #remind j10 and j20f are vectors (one val per transition).
+        nbarIn = aself.nbar.vals * ratio #np.ones(self.ntr) * ratio
+        omegaIn = aself.j20f.vals #np.ones(self.ntr)    #Not anymore np.zeros(4) 
+        j10In = aself.j10.vals   #remind j10 and j20f are vectors (one val per transition).
 
-        betaIn = self.parameters['beta']      
+        betaIn = aself.parameters['beta']      
 
         #-------------------------------------------------
 
-        dopplerWidthIn = self.parameters['deltav']
-        dampingIn = self.parameters['a']
-        dopplerVelocityIn = self.parameters['v']
+        dopplerWidthIn = aself.parameters['deltav']
+        dampingIn = aself.parameters['a']
+        dopplerVelocityIn = aself.parameters['v']
 
         #Check where self.index is updated. It is index of current chromosphere,from 1 to n_chromospheres. 
-        args = (self.index, method, BIn, hIn, tau1In, boundaryIn, transIn, anglesIn, nLambdaIn,
+        args = (aself.index, dn, method, BIn, hIn, tau1In, boundaryIn, transIn, anglesIn, nLambdaIn,
             lambdaAxisIn, dopplerWidthIn, dampingIn, j10In, dopplerVelocityIn,
-            betaIn, nbarIn, omegaIn, self.atompol,self.magopt,self.stimem,self.nocoh,np.asarray(self.dcol) )
+            betaIn, nbarIn, omegaIn, aself.atompol,aself.magopt,aself.stimem,aself.nocoh,np.asarray(aself.dcol) )
         
         #2D opt coeffs yet (not height dependent), for current slab self.index
         l,stokes,epsout,etaout,stimout,error = hazel_code._synth(*args)
 
         if (error == 1):raise NumericalErrorHazel()
 
-        ff = self.parameters['ff'] #include it in the return below
+        ff = aself.parameters['ff'] #include it in the return below
         
         return ff * stokes, epsout,etaout,stimout,error #/ hsra_continuum(mltp[self.active_line])
 

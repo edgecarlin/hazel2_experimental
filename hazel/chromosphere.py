@@ -294,7 +294,7 @@ class Hazel_atmosphere(General_atmosphere):
         #(but only with vertical ref system), because it is useful for the user
         self.parameters['B'],self.parameters['thB'],self.parameters['phiB'], \
         self.parameters['Bx'],self.parameters['By'],self.parameters['Bz']= \
-        self.get_B_Hazel(pars[0],pars[1],pars[2])#,interp_as_sph=inmag) 
+        self.get_B_Hazel(pars[0],pars[1],pars[2])
         
 
         for kk,key in enumerate(['tau','v','deltav','beta','a']):

@@ -133,6 +133,7 @@ class Model(object):
         self.dlims=None
         self.pars2D=None        
         self.B2D=None
+        self.hz=None
 
         self.plotit=plotit
         self.plotscale=3
@@ -586,7 +587,7 @@ class Model(object):
             else:    
                 var=pkws['var']
                 if allabs[i]=='tau':var='exp'
-                self.plot_PolyFx(ax,[hz[0],hz[-1]],dlims[allabs[i]],nps=pkws['nps'],var=var,method=pkws['method'])
+                self.plot_PolyFx(ax,hz,dlims[allabs[i]],nps=pkws['nps'],var=var,method=pkws['method'])
                 
             ax.set_title(mylab(allabs[i]))
             if i >8:ax.set_xlabel(mylab('hz'))
@@ -2036,7 +2037,18 @@ class Model(object):
         #return chout, tags
         return self.chromospheres, tags
 
-    def add_funcatmos(self,Ncells,ckey,hzlims=None,hz=None,topo=''):
+    def set_hz(self,hzlims=[0.,1500.],hztype='lin'):    
+        Ncells=self.n_chromospheres        
+        hz = np.linspace(hzlims[0], hzlims[-1], Ncells)
+        xaux=np.linspace(0,Ncells,Ncells)#yaux is hz : yaux=np.linspace(hzlims[0],hzlims[1],Ncells)
+        if hztype=='lin':funX=xaux
+        if hztype=='parab':funX=xaux*xaux
+        xnew=np.max(xaux)*funX/np.max(funX)#np.exp(-x)
+        hz = np.interp(xnew, xaux, hz)
+        
+        return hz 
+
+    def add_funcatmos(self,Ncells,ckey,hzlims=[0.,1500.],hztype='lin',topo=''):
         '''
         Creates and add a full chromosphere made of N elemental pieces/slabs/cells
         and making certain parameters to vary according to given P-order polinomials.
@@ -2064,8 +2076,12 @@ class Model(object):
         #for each cell as incoming parameter we are also setting the height scale
         #indirectly with dtau=eta_I*dz. Hence we will need to wait for eta_I before returning 
         #a meaningful value of hz scales
-        if (hz is None):hz=[0.0]*Ncells 
+        if 'hzlims' in ckey:hzlims=ckey['hzlims']
+        if 'hztype' in ckey:hztype=ckey['hztype']
+        self.n_chromospheres=Ncells
         self.hzlims=hzlims
+
+        self.hz=self.set_hz(hzlims=hzlims,hztype=hztype)
 
         #we must return topology string used later for add spectrum in the main program
         tags=[]
@@ -2088,11 +2104,11 @@ class Model(object):
         '''
         #chout=[]
         for kk in range(Ncells):        
-            #chout.append(self.add_chromosphere({'name': tags[kk],'height': hz[kk],**ckey}))
-            self.chromospheres.append(self.add_chromosphere({'name': tags[kk],'height': hz[kk],**ckey}))
+            #chout.append(self.add_chromosphere({'name': tags[kk],'height': self.hz[kk],**ckey}))
+            self.chromospheres.append(self.add_chromosphere({'name': tags[kk],'height': self.hz[kk],**ckey}))
 
         #return chout, topo
-        return self.chromospheres, topo
+        return topo
 
     def fix_point_polyfit_fx(self,n, x, y, xf, yf) :
         '''Solves a system of equations that allow o determine the parameters of a polynomial 
@@ -2145,7 +2161,7 @@ class Model(object):
         par,cov = curve_fit(exp_3points, xps, yps, p0=np.array([0, -1, 1]), absolute_sigma=True)
         return xps,yps,exp_3points(xx,par[0],par[1],par[2])
 
-    def plot_PolyFx(self,ax,xpl,ypl,nps=2,var='mono',method=2): 
+    def plot_PolyFx(self,ax,xx,ypl,nps=2,var='mono',hztype='lin',method=2): 
         '''This function just plots some reference polynomials and functions to 
         illustrate possible variations to be assigned to the physical variables
         or to visualize them with respect to the actual variations set.
@@ -2155,7 +2171,8 @@ class Model(object):
         #fig = plt.figure()
         #ax = fig.gca()
         npoints=30
-        xx = np.linspace(xpl[0], xpl[-1], num=npoints)
+        xpl=[xx[0],xx[-1]]
+        if hztype=='lin':xx = np.linspace(xpl[0], xpl[-1], num=npoints)
 
         #array of fixed limiting points, AT LEAST including limiting interval points
         xf, yf = np.array(xpl), np.array(ypl)
@@ -2201,14 +2218,17 @@ class Model(object):
         return #ax
 
 
-    def PolyFx(self,xx,xpl,ypl,nps=2,order=4,npoints=10,var='mono',method=2):
+    def PolyFx(self,xx,ypl,nps=2,order=4,npoints=10,var='mono',method=2):
         '''Get order-N polynomial function connecting points with coords xpl ypl.
         Method=monotonic uses a hardcoded nps=2. Test variations
         with plot_PolyFx function.
         Coeffs given by polyfit are in descending order (x**o to x**0).
         xpl,ypl = [p1[0],p2[0]],[p1[1],p2[1]] --> for two points
+        
         ''' 
         #xx = np.linspace(xpl[0], xpl[-1], num=npoints)
+        #now xpl is obtained from xx (i.e. hz) directly. Hence, this routine can be simplified
+        xpl=[xx[0],xx[-1]]
 
         #array of fixed limiting points, AT LEAST including limiting interval points
         xf, yf = np.array(xpl), np.array(ypl)
@@ -2276,19 +2296,15 @@ class Model(object):
             self.check_limits(dlims,selected)#check only mutated keys
             ksel=np.zeros(len(selected),dtype=int)
             for kk,elem in enumerate(selected):ksel[kk]=alls.index(elem)
-            if hzlims is not None:self.hzlims=hzlims #mutates can reset self.hzlims
 
-        hzlims=self.hzlims#pointer for brevity
+        if hzlims is not None:
+            self.hzlims=hzlims #mutates can also reset self.hzlims
+            self.hz=self.set_hz(hzlims=hzlims,hztype=hztype)    
+        
+        hz=self.hz#pointer for brevity
         p2D=self.pars2D#pointer for brevity
         self.dlims=dlims#remember dlims in case mutates() is called later
-        
-        hz = np.linspace(hzlims[0], hzlims[-1], Ncells)
-        if hztype=='parab':
-            xaux=np.linspace(0,Ncells,Ncells)#yaux is hz : yaux=np.linspace(hzlims[0],hzlims[1],Ncells)
-            funX=xaux*xaux
-            xnew=np.max(xaux)*funX/np.max(funX)#np.exp(-x)
-            hz = np.interp(xnew, xaux, hz)
-                    
+
         if type(orders) is int:orders=[orders]*len(alls) 
 
         if (Ncells > 2):    #build functions and values for the parameters in pars2D 
@@ -2298,9 +2314,9 @@ class Model(object):
                     if (orders[ksel[kk]]>0)&(self.verbose >= 1):warnings.warn("The quantity {0} is being forced to keep constant values.".format(key))
                 else:
                     if key=='tau' or key=='deltav':#create exponential or minT functions
-                        p2D[ksel[kk],:]=self.PolyFx(hz,hzlims,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
+                        p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
                     else:
-                        p2D[ksel[kk],:]=self.PolyFx(hz,hzlims,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
+                        p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
         else:  #only 2-cell case (limiting cells)
             for kk,key in enumerate(selected):
                 p2D[ksel[kk],:]=np.array( [dlims[key][0],dlims[key][1] ] )

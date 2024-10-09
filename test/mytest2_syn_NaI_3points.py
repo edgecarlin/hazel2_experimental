@@ -12,17 +12,17 @@ m1 = hazel.Model(atomfile='sodium_hfs.atom',apmosekc='1110')#only synthesis
 
 cdic={'ref frame': 'LOS'}#common args to all chromospheres
 
-chs,topo = m1.add_funcatmos(6,cdic,hzlims=[0.,1500.])#add functional atmosphere 
+topo = m1.add_funcatmos(6,cdic,hzlims=[0.,1500.],hztype='parab')#add functional atmosphere 
 s1=m1.add_spectrum('s1', atom='sodium',linehazel='5895',wavelength=[5894, 5897, nx], 
 	topology=topo,los=[0.,0.,90.],boundary=[p1,p0,p0,p0])	;m1.setup() 
 
 #----------------------------------------------------------------------------------
 dlims={'B1':[350,100], 'B2': [89,90], 'B3':[44,49],\
-	'tau':[3.,0.05],'v':[0,4],'deltav':[4,7],'a':[0.2,0.1] ,\
+	'tau':[6.,2.],'v':[0,4],'deltav':[4,7],'a':[0.2,0.1] ,\
 	'j10':[0.01,0.02],'j20f':[1,1.5],'beta':[1,1]} #...'ff':[1,1],'nbar':[1,1]}
 
 pkws={'plotit':9,'nps':3,'var':'mono','method':1}
-hz=m1.set_funcatm(dlims,hztype='parab',orders=4,**pkws) #set atm pars following a given-order function
+hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars following a given-order function
 
 m1.synthesize(plot='s1') #frac=True
 #m1.plot_coeffs('s1') #,coefs=['epsv','etai','etaq','etav'],scale=2)
