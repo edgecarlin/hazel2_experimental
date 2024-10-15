@@ -1,19 +1,114 @@
 # cython: language_level=3
 from numpy cimport ndarray as ar
+from numpy cimport npy_bool as nbool
 from numpy import empty, linspace, zeros, array
 
+dni=1
+
 cdef extern:
+	void c_rtcoeffs(int* index, double* B1Input, double* hInput, int* transInput, double* anglesInput, 
+		int* nLambdaInput, double* lambdaAxisInput,double* dopplerWidthInput, double* dampingInput, 
+		double* j10Input, double* dopplerVelocityInput, double* nbarInput, double* omegaInput, 
+		int* atompolInput,int* magoptInput,int* stimemInput,int* nocohInput, double* dcolInput,
+		double* wavelengthOut, nbool* recomputed,double* epsOut,double* etaOut,double* rhoOut, int* error)
+
+	void c_rt_synthesis(int* index,int* dn, int* synMethIn, double* hIn, double* tau1In, double* betaIn,
+		double* boundaryIn, int* nLambdaIn, double* epsIn, double* etaIn, double* rhoIn,
+		double* stokesOut, int* error)
+
 	void c_hazel(int* index, int* synMethInput, double* B1Input, double* hInput, double* tau1Input, 
 		double* boundaryInput, int* transInput, double* anglesInput, int* nLambdaInput, double* lambdaAxisInput,
 		double* dopplerWidthInput, double* dampingInput, double* j10Input, double* dopplerVelocityInput, 
 		double* betaInput, double* nbarInput, double* omegaInput, 
 		int* atompolInput,int* magoptInput,int* stimemInput,int* nocohInput, double* dcolInput,
 		double* wavelengthOut, double* stokesOut,double* epsOut,double* etaOut,double* stimOut, int* error)
-		
+
 	void c_init(int* nchar,char* atomfile, int* verbose,int* ntransOutput) #EDGAR: added nchar, atomfile, and output par ntrans
 	void c_exit(int* index)
 
-#routine called by python synthazel
+
+#NEW routine called by python get_coeffs() to solve local part: SEE AND ALL OPTICAL COEFFS FOR ALL CELLS
+def _rtcoeffs(int index=1, ar[double,ndim=1] B1Input=zeros(3), double hInput=3.0, 
+	int transInput=1, ar[double,ndim=1] anglesInput=zeros(3), int nLambdaInput=128, 
+	ar[double,ndim=1] lambdaAxisInput=linspace(-1.5,2.5,128), double dopplerWidthInput=5.0,
+	double dampingInput=0.0, ar[double,ndim=1] j10Input=zeros(4),double dopplerVelocityInput=0.0, 
+	ar[double,ndim=1] nbarInput=zeros(4), ar[double,ndim=1] omegaInput=zeros(4),
+	int atompolInput=1,int magoptInput=1,int stimemInput=1,int nocohInput=0, 
+	ar[double,ndim=1] dcolInput=zeros(3)):
+
+	cdef:
+		ar[double,ndim=1] wavelengthOut = empty(nLambdaInput, order='F')
+		nbool recomputed = True
+		ar[double,ndim=3] epsOut = empty((1,4,nLambdaInput), order='F')
+		ar[double,ndim=3] etaOut = empty((1,4,nLambdaInput), order='F')
+		ar[double,ndim=3] rhoOut = empty((1,3,nLambdaInput), order='F')
+		int error
+
+	#calls fortran routine c_hazel in hazel_py.f90
+	c_rtcoeffs(&index, &B1Input[0], &hInput, &transInput, &anglesInput[0], &nLambdaInput, 
+		&lambdaAxisInput[0], &dopplerWidthInput, &dampingInput, &j10Input[0], &dopplerVelocityInput, 
+		&nbarInput[0], &omegaInput[0],&atompolInput,&magoptInput,&stimemInput,&nocohInput,&dcolInput[0],
+		<double*> wavelengthOut.data, <nbool*> &recomputed, <double*> epsOut.data, 
+		<double*> etaOut.data,<double*> rhoOut.data, &error)
+    
+	return wavelengthOut, recomputed, epsOut, etaOut, rhoOut, error
+	"""
+	Arrays with more than one dimension (as boundaryInput) are in fortran mode while others do not need
+	Args:
+		index: (int) index of atmosphere
+		B1Input: (float) matrix of size 3 x dni (with dni expected to be 3)--> these are in python dims here
+				and with the magnetic field vector in spherical coordinates
+		hInput: (float) vector with height
+		transInput: (int) transition to compute from the model atom
+		anglesInput: (float) vector of size 3 describing the LOS
+		lambdaAxisInput: (float) vector of size 2 defining the left and right limits of the wavelength axis
+		nLambdaInput: (int) number of wavelength points
+		dopplerWidth1Input: (float) Doppler width of the first component
+		dampingInput: (float) damping
+		dopplerVelocityInput: (float) bulk velocity affecting the first component
+		nbarInput: (float) vector of size 4 to define nbar for every transition of the model atom (set them to zero to use Allen's)
+		omegaInput: (float) vector of size 4 to define omega for every transition of the model atom (set them to zero to use Allen's)
+		
+    Returns:
+        wavelengthOutput: (float) vector of size nLambdaInput with the wavelength axis
+        epsOutput: (float) array of size (4,nLambdaInput) with the emissivity vector at each wavelength
+        etaOutput: (float) array of size (7,nLambdaInput) with the independent elements of K matrix at each wavelength
+		error: (int) zero if everything went OK
+	"""
+
+def _rt_synthesis(int index=1,int dn=dni, int synMethIn=5, ar[double,ndim=1] hIn=zeros(dni), 
+	ar[double,ndim=1] tauIn=zeros(dni), ar[double,ndim=1] betaIn=zeros(dni), 
+	ar[double,ndim=2,mode='fortran'] boundaryIn=zeros((4,128)),int nLambdaIn=128,
+	ar[double,ndim=3,mode='fortran'] epsIn=zeros((dni,4,128)),
+	ar[double,ndim=3,mode='fortran'] etaIn=zeros((dni,4,128)),
+	ar[double,ndim=3,mode='fortran'] rhoIn=zeros((dni,3,128)) ):
+
+	cdef:		
+		ar[double,ndim=2] stokesOut = empty((4,nLambdaIn), order='F')
+		int error
+
+	#calls fortran routine c_hazel in hazel_py.f90
+	c_rt_synthesis(&index, &dn, &synMethIn, &hIn[0], &tauIn[0], &betaIn[0], 
+		&boundaryIn[0,0], &nLambdaIn, &epsIn[0,0,0],&etaIn[0,0,0],&rhoIn[0,0,0],
+		<double*> stokesOut.data, &error)
+    
+	return stokesOut, error
+	"""
+	Arrays with more than one dimension (as boundaryInput) are in fortran mode while others do not need
+	Args:
+		dn: number of cells, i.e. size of interval to be processed by formal solver
+		hInput: (float) vector with height
+		tau1Input: (float) vector with optical depth of the first component
+		boundaryInput: (float) vector of size 4xnLambda with the boundary condition for (I,Q,U,V)
+		nLambdaInput: (int) number of wavelength points
+		epsIn,etaIn,rhoIn: are the full opt coeffs in the block of dn cells selected
+		betaInput: (float) enhancement factor for the source function of component 1 to allow for emission lines in the disk
+    Returns:
+        stokesOutput: (float) array of size (4,nLambdaInput) with the emergent Stokes profiles
+		error: (int) zero if everything went OK
+	"""
+
+#standard routine called by python synthazel to synthesis ONLY 1 CELL PER CALL
 def _synth(int index=1, int synMethInput=5, ar[double,ndim=1] B1Input=zeros(3), double hInput=3.0, 
 	double tau1Input=1.0, 
 	ar[double,ndim=2,mode='fortran'] boundaryInput=zeros((4,128)), int transInput=1, ar[double,ndim=1] anglesInput=zeros(3), 
@@ -24,13 +119,8 @@ def _synth(int index=1, int synMethInput=5, ar[double,ndim=1] B1Input=zeros(3), 
 	int atompolInput=1,int magoptInput=1,int stimemInput=1,int nocohInput=0, 
 	ar[double,ndim=1] dcolInput=zeros(3)):
 	
-
-	#EDGAR: 
-	#nLambdaInput, lambdaAxisInput,nLambdaInput are hardcoded to 128 points or is just an initialization?
-	#same for nbarInput and omegaInput which seems initizialized to 4 transitions.
 	"""
 	Carry out a synthesis with Hazel
-	
 	Args: (see the manual for the meaning of all of them)
 		index: (int) index of atmosphere
 		B1Input: (float) vector of size 3 with the magnetic field vector in spherical coordinates for the first component
@@ -82,7 +172,6 @@ def _init(str atomfile, int verbose=0):
         atomfile: (str) name of the input atom file .mod to be read. This is a C string
     Returns:
         None
-
 	EDGAR:The line atomfile.encode() converts the input atomfile string to utf8
 
 	"""
@@ -103,4 +192,5 @@ def _init(str atomfile, int verbose=0):
 def _exit(int index):
 		
 	c_exit(&index)
+
 

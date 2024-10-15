@@ -11,17 +11,25 @@ __all__ = ['Spectrum']
 class Spectrum(object):
     def __init__(self, wvl=None, weights=None, observed_file=None, name=None, stokes_weights=None, 
         los=None, boundary=None, mask_file=None, instrumental_profile=None, save_all_cycles=False, 
-        root='', wvl_lr=None,lti=None,lineHazel='',lineSIR='', n_chromo=None,synmethod=None):
+        root='', wvl_lr=None,lti=None,lineHazel='',lineSIR='', n_chromo=None,synmethod=None,
+        synthesis_from_model=True):
         
         self.wavelength_axis = None
         self.stokes = None
         self.stokes_perturbed = None
-        
+
+        self.synthesis_from_model=synthesis_from_model #updated from model(with False) or modelRT(with True)    
         self.eps = None  #EDGAR
-        self.eta = None
-        self.stim = None
-        self.etas = None#total coeffs
-        self.rhos = None#total coeffs
+        self.eta = None#detailed coeffs with both dichroic and MO components in order
+        self.stim = None#detailed coeffs with both dichroic and MO components in order
+        self.etas = None#old full coeffs for all cells (ncells x 4 x nlambda)
+        self.rhos = None#old full coeffs for all cells (ncells x 3 x nlambda)
+        self.rteps = None
+        self.rteta = None
+        self.rtrho = None
+        
+        self.wvl_range=None
+        self.nwvl=None
         self.ntrans=0
 
         self.pixel = 0
@@ -125,26 +133,43 @@ class Spectrum(object):
         None
     
         """  
-        self.wavelength_axis = wvl        
+        self.nwvl=len(wvl)
+        self.wavelength_axis = wvl 
+
+        ind_low = (np.abs(wvl - np.min(wvl))).argmin()
+        ind_top = (np.abs(wvl - np.max(wvl))).argmin()
+        self.wvl_range = [ind_low, ind_top+1] #or simply [0,-1]
+
         self.wavelength_axis_lr = wvl_lr
-        self.stokes = np.zeros((4,len(wvl)))
-        self.stokes_perturbed = np.zeros((4,len(wvl)))
-        
-        #EDGAR: general optical coeffs python containers
-        #nch considers all atmospheres, also those inside same pixel with filling factor
-        #so N slabs with 2 subpixels are 2N atmospheres.
-        self.eps = np.zeros((nch,4,len(wvl))) 
-        self.eta = np.zeros((nch,7,len(wvl))) 
-        self.stim = np.zeros((nch,7,len(wvl))) 
+        self.stokes = np.zeros((4,self.nwvl))
+        self.stokes_perturbed = np.zeros((4,self.nwvl))
+            
+        #Optical coeffs python containers
+        if self.synthesis_from_model:  #here,the synthesis and calculation of coeffs is done from modelRT in modelSynth.py 
+            #finally the newer containers for the full RT opt coeffs used when working with 
+            #the new extended atmopsheres and efficient radiative transfer routines
+            self.rteps = np.zeros((nch,4,self.nwvl)) 
+            self.rteta = np.zeros((nch,4,self.nwvl)) 
+            self.rtrho = np.zeros((nch,3,self.nwvl)) 
+            #self.rteps = np.asfortranarray(np.zeros((nch,4,self.nwvl)) )
+            #self.rteta = np.asfortranarray(np.zeros((nch,4,self.nwvl)) )
+            #self.rtrho = np.asfortranarray(np.zeros((nch,3,self.nwvl)) )
+        else:#here the synthesis and calculation of coeffs is done from model in model.py 
+            #nch considers all atmospheres, also those inside same pixel with filling factor
+            #so N slabs with 2 subpixels are 2N atmospheres.
+            #these are the old version coeffs, having 7 positions for storing absorption and 
+            #magnetooptical components independently
+            self.eps = np.zeros((nch,4,self.nwvl)) 
+            self.eta = np.zeros((nch,7,self.nwvl)) 
+            self.stim = np.zeros((nch,7,self.nwvl)) 
+            #only used at the end of the calculation when building the total opt coeffs for output:
+            self.etas=np.zeros((nch,4,self.nwvl)) 
+            self.rhos = np.zeros((nch,3,self.nwvl))
 
-        #only used at the end of the calculation when building the total opt coeffs for output
-        self.etas=np.zeros((nch,4,len(wvl))) 
-        self.rhos = np.zeros((nch,3,len(wvl)))
-
-        self.stray = np.zeros((4,len(wvl)))
-        self.obs = np.zeros((4,len(wvl)))
-        self.noise = np.zeros((4,len(wvl)))
-        self.dof = 4.0 * len(wvl)
+        self.stray = np.zeros((4,self.nwvl))
+        self.obs = np.zeros((4,self.nwvl))
+        self.noise = np.zeros((4,self.nwvl))
+        self.dof = 4.0 * self.nwvl
 
         #self.boundary_single is array([1.0,0.0,0.0,0.0]) or float array of (4,Nwavelength) 
         if (self.boundary_single is not None):self.set_boundary(self.boundary_single)

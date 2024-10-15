@@ -3,8 +3,13 @@ import h5py
 from asciitree import LeftAligned
 from collections import OrderedDict
 from asciitree.drawing import BoxStyle, BOX_DOUBLE, BOX_BLANK
+import pickle, os
+from timeit import default_timer as timer 
 
-__all__ = ['i0_allen', '_extract_parameter_cycles', 'isint', 'fvoigt', 'lower_dict_keys', 'show_tree']
+__all__ = ['aft','i0_allen', 'savemodel','readmodel','save_RTcoeffs','read_RTcoeffs','_extract_parameter_cycles', 'isint', 'fvoigt', 'lower_dict_keys', 'show_tree']
+
+def aft(x):
+    return np.asfortranarray(x)
 
 def i0_allen(wavelength, muAngle):
     """
@@ -33,6 +38,39 @@ def i0_allen(wavelength, muAngle):
     i0 = np.interp(wavelength, lambdaI0, I0)
     
     return (1.0 - u - v + u * muAngle + v * muAngle**2)* i0
+
+
+''' Place here saving/restoring routines to access them without need of loading a model'''
+mydir='saved_data/'
+
+def savemodel(vars,fname,dir=mydir,description='Read this description'):
+    start=timer()
+    vars.append(description)
+    with open(dir+fname, 'wb') as fi:
+        pickle.dump(vars, fi, protocol=pickle.HIGHEST_PROTOCOL)
+    #print('File size: {0} kbytes'.format(os.path.getsize(dir+fname)/1024.0))
+    #print('Saved in {0} seconds'.format(timer()-start))
+    print("Saved to file: {0:{pp}} kb in: {1:{pp}} s\n".format(os.path.getsize(dir+fname)/1024.0,
+        timer()-start,pp='11.3f'))
+
+def readmodel(fname,dir=mydir):
+    start=timer()
+    with open(dir+fname, 'rb') as fi:
+        model_atmdic_desc_list = pickle.load(fi)
+    end=timer()
+    print("Read in {0:{pp}} s.\n".format(timer()-start,pp='11.4f'))
+    return model_atmdic_desc_list
+
+def save_RTcoeffs(mm,sp,dlims,fname,description='Add a description',dir=mydir):
+    packed=[mm.spectrum[sp].rteps,mm.spectrum[sp].rteta,mm.spectrum[sp].rtrho,dlims]
+    savemodel(packed,fname,dir=dir,description=description)
+
+def read_RTcoeffs(fname,dir=mydir):
+    #eps,eta,rho,dlims,des=readmodel(fname,dir=dir)
+    return readmodel(fname,dir=dir)
+
+''' ----------------------------------------------------------------------------------'''
+
 
 def _extract_parameter_cycles(s):
     tmp = s[0].split('->')

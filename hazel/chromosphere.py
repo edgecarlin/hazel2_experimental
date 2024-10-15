@@ -521,8 +521,11 @@ class Hazel_atmosphere(General_atmosphere):
             boundaryIn  = np.asfortranarray(np.zeros((4,nLambdaIn)))
             boundaryIn[0,:] = i0_allen(mltp[self.active_line], self.spectrum.mu) #hsra_continuum(mltp[self.active_line]) 
             boundaryIn *= self.spectrum.boundary[:,self.wvl_range[0]:self.wvl_range[1]]
+
         else:            
-            boundaryIn = np.asfortranarray(stokes)
+            #as this changes during transfer, ratio also will slightly, because 
+            #continuum levels will not be perfectly achieved in small wavelength windows
+            boundaryIn = np.asfortranarray(stokes) 
 
         '''
         EDGAR: the value of boundary that enters here 
@@ -539,6 +542,7 @@ class Hazel_atmosphere(General_atmosphere):
         boundaryIn is then spectrum.boundary*I0Allen = I0(physical)
         then ratio=boundaryIn/I0Allen=I0(physical)/I0Allen , 
         which is a fraction of 1.0 (relative to the I0llen), as desired for nbarIn.
+        NOTE THAT RATIO HERE IS NOT CONSTANT WITH HEIGHT BECAUSE BOUNDARY IS UPDATED ALONG THE RT
         '''
         ratio = boundaryIn[0,0]/ i0_allen(mltp[self.active_line], self.spectrum.mu)
 
@@ -554,7 +558,7 @@ class Hazel_atmosphere(General_atmosphere):
         betaIn = self.parameters['beta']      
 
         #-------------------------------------------------
-
+        
         dopplerWidthIn = self.parameters['deltav']
         dampingIn = self.parameters['a']
         dopplerVelocityIn = self.parameters['v']
@@ -564,6 +568,14 @@ class Hazel_atmosphere(General_atmosphere):
             lambdaAxisIn, dopplerWidthIn, dampingIn, j10In, dopplerVelocityIn,
             betaIn, nbarIn, omegaIn, self.atompol,self.magopt,self.stimem,self.nocoh,np.asarray(self.dcol) )
         
+        #print(boundaryIn[0,90],boundaryIn[1,90])
+        print(ratio,boundaryIn[0,0], self.spectrum.boundary[0,self.wvl_range[0]])
+
+        #print(nbarIn,self.nbar.vals, ratio,boundaryIn[0,0],i0_allen(mltp[self.active_line], self.spectrum.mu), mltp[self.active_line],self.spectrum.mu)
+        #print(self.index, method, B1In, hIn, tau1In,transIn, anglesIn, nLambdaIn, dopplerWidthIn, dampingIn, 
+        #    j10In, dopplerVelocityIn,betaIn, nbarIn, omegaIn, self.atompol,self.magopt,self.stimem,self.nocoh,np.asarray(self.dcol) )
+        
+
         #2D opt coeffs yet (not height dependent), for current slab self.index
         l,stokes,epsout,etaout,stimout,error = hazel_code._synth(*args)
 

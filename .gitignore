@@ -36,6 +36,7 @@ var/
 *.f90_save
 *.pyx_save
 saved_development/
+*.hazex
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

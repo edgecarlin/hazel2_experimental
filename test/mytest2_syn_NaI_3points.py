@@ -6,26 +6,42 @@ import sys
 nx=150
 p1,p0=np.ones(nx),np.zeros(nx) 
 
-#----------------------------------------------------------------------------------
-#m1 = hazel.Model(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
-m1 = hazel.Model(atomfile='sodium_hfs.atom',apmosekc='1110')#only synthesis 
+fn='m1_coeffs_ref1.hazex'
 
-cdic={'ref frame': 'LOS'}#common args to all chromospheres
+if 0==1:
+	#----------------------------------------------------------------------------------
+	m1 = hazel.ModelRT(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
+	cdic={'ref frame': 'LOS'}#common args to all chromospheres
+	topo = m1.add_funcatmos(6,cdic,hzlims=[0.,1500.],hztype='parab')#add functional atmosphere 
+	s1=m1.add_spectrum('s1', atom='sodium',linehazel='5895',wavelength=[5894, 5897, nx], 
+		topology=topo,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
+	#----------------------------------------------------------------------------------
+	dlims={'B1':[350,100], 'B2': [89,90], 'B3':[44,49],\
+		'tau':[6.,2.],'v':[0,4],'deltav':[4,7],'a':[0.2,0.1] ,\
+		'j10':[0.01,0.02],'j20f':[1,1.5],'beta':[1,1]} #...'ff':[1,1],'nbar':[1,1]}
 
-topo = m1.add_funcatmos(6,cdic,hzlims=[0.,1500.],hztype='parab')#add functional atmosphere 
-s1=m1.add_spectrum('s1', atom='sodium',linehazel='5895',wavelength=[5894, 5897, nx], 
-	topology=topo,los=[0.,0.,90.],boundary=[p1,p0,p0,p0])	;m1.setup() 
+	pkws={'plotit':9,'nps':3,'var':'mono','method':1}
+	hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars following a given-order function
 
-#----------------------------------------------------------------------------------
-dlims={'B1':[350,100], 'B2': [89,90], 'B3':[44,49],\
-	'tau':[6.,2.],'v':[0,4],'deltav':[4,7],'a':[0.2,0.1] ,\
-	'j10':[0.01,0.02],'j20f':[1,1.5],'beta':[1,1]} #...'ff':[1,1],'nbar':[1,1]}
+	m1.synthesize(plot='s1',FtS=fn)#frac=True  muAllen=0.9; m1.exit_hazel()
+else: 
+	m1,des=hazel.readmodel(fn) #read from file
+	m1.synthesize(plot='s1',FtR=fn)
+	#m1.mutates('s1', apmosekc='0110')
 
-pkws={'plotit':9,'nps':3,'var':'mono','method':1}
-hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars following a given-order function
+m1.exit_hazel()
 
-m1.synthesize(plot='s1') #frac=True
-#m1.plot_coeffs('s1') #,coefs=['epsv','etai','etaq','etav'],scale=2)
+
+#fname='m1_coeffs_12octC.ehazel'
+#hazel.savemodel([m2,dlims],fname)
+#mm,dlims,des=hazel.readmodel(fname) 
+
+#hazel.save_RTcoeffs(m2,'s1',dlims,fname) #model,spectrum name,dlims, filename
+#eps,eta,rho,dlims,des=hazel.read_RTcoeffs(fname)
+
+#m2.compare_experiments(m1,'s1')
+
+#m1.plot_coeffs('s1',bwc=1.) #,coefs=['epsv','etai','etaq','etav'],scale=2)
 
 #EXAMPLES MUTATES:
 #mo,kk=m1.mutates('s1', apmosekc='1110',B1=[46.,48.],j20f=[1.1,1.5],pkws=pkws)

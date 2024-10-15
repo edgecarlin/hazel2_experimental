@@ -7,6 +7,33 @@ contains
 !------------------------------------------------------------
 ! Calculate the radiative transfer coefficients
 !------------------------------------------------------------
+
+	subroutine alloc_rt_coef(in_fixed)
+	type(fixed_parameters) :: in_fixed
+
+	    if (.not.associated(in_fixed%epsilon)) allocate(in_fixed%epsilon(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%epsilon_zeeman)) allocate(in_fixed%epsilon_zeeman(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%eta)) allocate(in_fixed%eta(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%eta_zeeman)) allocate(in_fixed%eta_zeeman(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%eta_stim)) allocate(in_fixed%eta_stim(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%eta_stim_zeeman)) allocate(in_fixed%eta_stim_zeeman(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%mag_opt)) allocate(in_fixed%mag_opt(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%mag_opt_zeeman)) allocate(in_fixed%mag_opt_zeeman(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%mag_opt_stim)) allocate(in_fixed%mag_opt_stim(0:3,in_fixed%no))
+	    if (.not.associated(in_fixed%mag_opt_stim_zeeman)) allocate(in_fixed%mag_opt_stim_zeeman(0:3,in_fixed%no))
+	    in_fixed%epsilon = 0.d0
+	    in_fixed%epsilon_zeeman = 0.d0
+	    in_fixed%eta = 0.d0
+	    in_fixed%eta_zeeman = 0.d0
+	    in_fixed%eta_stim = 0.d0
+	    in_fixed%eta_stim_zeeman = 0.d0
+	    in_fixed%mag_opt = 0.d0
+	    in_fixed%mag_opt_stim = 0.d0
+	    in_fixed%mag_opt_zeeman = 0.d0
+	    in_fixed%mag_opt_stim_zeeman = 0.d0
+
+	end subroutine alloc_rt_coef
+
 	subroutine calc_rt_coef(in_params,in_fixed,in_observation)
 	type(variable_parameters) :: in_params
 	type(fixed_parameters) :: in_fixed
@@ -483,7 +510,9 @@ contains
 ! And we perform the summation given by eq. 7.47 of Landi & Landolfi (2004)
 ! Here we calculate only 7.47a because we are interested in the absorption coefficient
 !-------------------------------------------------------------------------
-		if (synthesis_method /= 0) then
+		!EDGAR: now we always calculate eta to make the calculation of the RT coeffs completely
+		!independent on the RT methods, which allows decoupling subroutines  
+		!if (synthesis_method /= 0) then---> NO 
 		
 			nloop = 0
       	x0 = dfloat(lu2+1)   ! It is (2Lu+1) because we need B_lu, which is equal to (2Lu+1)/(2Ll+1)*B_ul
@@ -585,8 +614,6 @@ contains
 ! 			deallocate(tmp1)
 ! 			deallocate(tmp2)
 ! 			deallocate(prof)						
-		
-		endif
 		
 !		call date_and_time(values=values_end)
 !		start_time = values_start(5) * 3600 + values_start(6) * 60 + values_start(7) + 0.001 * values_start(8)

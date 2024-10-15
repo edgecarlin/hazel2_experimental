@@ -22,7 +22,7 @@ import warnings
 import logging
 import sys
 import matplotlib.pyplot as plt #EDGAR: Im placing plotting routines here, but is a bit ugly
-
+from timeit import default_timer as timer
 
 labdic = {'z1':r'$\mathrm{z \, [Mm]}$',
         'tt':r'$\mathrm{T\,[kK]}$','tit':r'$\mathrm{Temperature}$',
@@ -143,8 +143,8 @@ class Model(object):
         self.ax1,self.ax2,self.ax3,self.ax4= None,None,None,None
         
         self.lock_fractional=None
-
-        #synthesis methods to be implemented
+        
+        #synthesis methods. Right now this is not used because these methods are only available for modelRT
         self.methods_dicT={0:'Emissivity',1:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'Guau'} 
         self.methods_dicS={'Emissivity':0,'Delo1':1,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'Guau':6} 
         self.methods_list=[ss for ss,tt in self.methods_dicS.items()] #list with only the names
@@ -164,7 +164,8 @@ class Model(object):
         self.spectrum = {}  #EDGAR:self.spectrum was initialized as [] and now as {}
         self.topologies = {}#[] EDGAR: before it was a list, now it is a dictionary
         self.atms_in_spectrum={} #EDGAR: of the kind -> {'sp1': string_with_atmosphere_order_for_sp1}
-        
+        self.built_coeffs=False
+
         #default mu where Allen continuum shall be taken for normalizing Stokes output
         #the actual value is set when calling synthesize_spectrum
         self.muAllen=1.0 
@@ -479,13 +480,15 @@ class Model(object):
 
         sp.etas=sp.eta[:,0:4,:]-sp.stim[:,0:4,:]
         sp.rhos= np.zeros_like(sp.etas)
-        sp.rhos[:,1:4,:]=sp.eta[:,4:7,:]-sp.stim[:,4:7,:]
+        sp.rhos[:,0:3,:]=sp.eta[:,4:7,:]-sp.stim[:,4:7,:]
 
-        codic1={'epsi':sp.eps[:,0,:],'epsq':sp.eps[:,1,:],'epsu':sp.eps[:,2,:],'epsv':sp.stim[:,3,:],
+        codic1={'epsi':sp.eps[:,0,:],'epsq':sp.eps[:,1,:],'epsu':sp.eps[:,2,:],'epsv':sp.eps[:,3,:],
             'etai':sp.etas[:,0,:],'etaq':sp.etas[:,1,:],'etau':sp.etas[:,2,:],'etav':sp.etas[:,3,:],
             'rhoq':sp.rhos[:,0,:],'rhou':sp.rhos[:,1,:],'rhov':sp.rhos[:,2,:]}
 
         codic2={'eps':sp.eps,'etas':sp.etas,'rhos':sp.rhos}
+
+        self.built_coeffs=True
 
         return codic1,codic2 
 
@@ -505,7 +508,7 @@ class Model(object):
                 labs.append(atm_name)
         lines=[]
         #----------------------------------
-        
+
         cd,cd2=self.build_coeffs(sp) #set sp.etas and sp.rhos
         #cds={**cd, **cd2} #merge the two dictionaries
 
@@ -761,9 +764,9 @@ class Model(object):
             if dloc[k] is not None:parsdic[k]=dloc[k]    
 
         if (bylayer is False) and (pkws is None):
-            warnings.warn("A plotting dictionary 'pkws' is needed to mutate all layers at once with set_funcatm().")
-            warnings.warn("The following default dictionary is assumed:")
-            warnings.warn("{'plotit':9,'nps':3,'var':'mono','method':1}")
+            print("A plotting dictionary 'pkws' is needed to mutate all layers at once with set_funcatm().")
+            print("The following default dictionary is assumed:")
+            print("{'plotit':9,'nps':3,'var':'mono','method':1}")
             pkws={'plotit':9,'nps':3,'var':'mono','method':1}
 
 
@@ -813,6 +816,7 @@ class Model(object):
         Here we just get a pointer to it maintaining the name of spectrum 
         '''
         newspec=newmo.spectrum[spec.name] #just for shortening sintaxis
+
         '''
         Here we decide to leave same name, but we make here explicit how to proceed otherwise.
         If we wish to change the name of the new spectrum in the new object
@@ -832,7 +836,12 @@ class Model(object):
         wvl=newspec.wavelength_axis
         wvl_lr=newspec.wavelength_axis_lr 
         wvl_range = [np.min(wvl), np.max(wvl)]#used below
-        newspec.add_spectrum(newmo.nch, wvl, wvl_lr)#reset stokes, eps, eta, stim, etas, rhos
+        
+        #As in this class the RT method belongs to the cells, select old version of containers for opt coeffs  
+        #newspec.synthesis_from_model=False
+        
+        newspec.add_spectrum(newmo.nch, wvl, wvl_lr)#creates/reset stokes, eps, eta, stim, etas, rhos
+
         '''
         We could directly modify hazelpars in atmopsheres(with this line in
         chromosphere.py: self.atompol,self.magopt,self.stimem,self.nocoh,self.dcol = hazelpars) 
@@ -1154,7 +1163,7 @@ class Model(object):
         #to n_chromospheres, hence most of this loop looks unnecessary.
 
         if (self.verbose >= 1):#EDGAR: print number of Hazel chromospheres/slabs
-            self.logger.info('N_chromospheres at setup',self.n_chromospheres)
+            self.logger.info("{0} chromospheres at setup".format(self.n_chromospheres))
 
         # Use analytical RFs if only photospheres are defined
         if (self.n_chromospheres == 0 and self.use_analytical_RF_if_possible):
@@ -1423,7 +1432,7 @@ class Model(object):
                     if (boundary[0] == 0.0):self.logger.info('  - Using off-limb normalization (peak intensity)')          
                 else:#the user already introduced float 64 arrays with spectral dependences for I.
                     self.logger.info('  - Using spectral profiles in boundary conditions')
-                    if (boundary[0,0] == 0.0):self.logger.info('  - Using off-limb normalization (peak intensity)')          
+                    if (boundary[0][0] == 0.0):self.logger.info('  - Using off-limb normalization (peak intensity)')          
             boundary = i0fraction*np.array(boundary).astype('float64')#gives array([1.0,0.0,0.0,0.0]) or array of (4,Nwavelength) 
         
         #---------------------------------------------
@@ -1479,7 +1488,7 @@ class Model(object):
         for k, atm in self.atmospheres.items():            
             if (atm.type == 'chromosphere'):self.nch += 1 #should be equal to self.n_chromospheres.
 
-        if (self.verbose >= 1):self.logger.info('N_chromospheres before setup',self.nch)
+        if (self.verbose >= 1):self.logger.info("{0} before setup".format(self.nch))
 
 
         #initialize here the optical coefficient containers with self.nch dimension:
@@ -1487,7 +1496,7 @@ class Model(object):
             name=name, stokes_weights=stokes_weights, los=los, boundary=boundary, 
             mask_file=mask_file, instrumental_profile=instrumental_profile, 
             root=self.root, wvl_lr=wvl_lr,lti=self.line_to_index,lineHazel=lineH,lineSIR=lineS,
-            n_chromo=self.nch, synmethod=self.synmethod)
+            n_chromo=self.nch, synmethod=self.synmethod,synthesis_from_model=False)
 
         #EDGAR: update spectrum object with the multiplets for later accesing it from synthesize at chromosphere.py
         self.spectrum[name].multiplets = self.multipletsdic[atom] 
@@ -1503,14 +1512,14 @@ class Model(object):
 
         #self.topologies.append(topology)#'ph1->ch1+ch2'
         self.topologies[name]=topology# anade una entrada del tipo {'sp1':'ch1->ch2'}
-        
+
         """
         Activate this spectrum with add_active_line for all existing atmospheres.
         Part of this routine was previously inside every add_atmosphere routine.
         Now all spectral and atmospheric actions and routines are disentangled. 
         Activate_lines is now called after adding all atmospheres in topology.
         """
-        if (self.verbose >= 1):self.logger.info('Activating lines in atmospheres',self.nch)
+        if (self.verbose >= 1):self.logger.info("Activating lines in atmospheres")
         for k, atm in self.atmospheres.items():            
             atm.add_active_line(spectrum=self.spectrum[name], wvl_range=np.array(wvl_range))
                         
@@ -1717,7 +1726,7 @@ class Model(object):
         for k, atm in self.atmospheres.items():            
             if (atm.type == 'chromosphere'):self.nch += 1 #should be equal to self.n_chromospheres.
         
-        if (self.verbose >= 1):self.logger.info('N_chromospheres before setup',self.nch)
+        if (self.verbose >= 1):self.logger.info("{0} before setup".format(self.nch))
 
 
         #EDGAR:inside here there is the add_spectrum routine setting up self.spectrum['spx'].wavelength_axis used below 
@@ -1959,7 +1968,7 @@ class Model(object):
                 raise Exception('Error: wrong specification of reference frame.')
 
         if (self.verbose >= 1):
-            self.logger.info("    * Adding line : {0}".format(atm['line']))
+            #self.logger.info("    * Adding line : {0}".format(atm['line']))
             self.logger.info("    * Magnetic field reference frame : {0}".format(self.atmospheres[atm['name']].reference_frame))
 
         if ('ranges' in atm):
@@ -2797,6 +2806,7 @@ class Model(object):
         print(n,order)        #0,['c0'] and 1,['c1','c2'] #the current layer
         print(k,atm)            #0,c0 / 0,c1 1,c2 (con chX los nombres(strings) de las atms)
         """        
+        #start=timer()
         for n, order in enumerate(self.atms_in_spectrum[spectral_region] ): #n run layers along the ray
             for k, atm in enumerate(order):  #k runs subpixels of topologies c1+c2                                                  
                 self.atmospheres[atm].line_to_index=self.line_to_index#update line_to_index in atm/hazel synthesize with that in add_spectral. 
@@ -2820,6 +2830,8 @@ class Model(object):
                         self.atmospheres[atm].synthazel(method,stokes=stokes_out,nlte=self.use_nlte)
                         stokes += tmp#DOUBT:the sum of contribs of all supixels should be done at the end of the transfer
                     #-------------------------------------------------------------------
+        #end=timer()
+        #print(end-start) 0.667 s
         i0=hazel.util.i0_allen(np.mean(asp.wavelength_axis[xbot:xtop]), self.muAllen)  #at mean wavelength
         #i0=hazel.util.i0_allen(asp.wavelength_axis[xbot:xtop], self.muAllen)[None,:] #at each wavelength
         if (self.use_analytical_RF):#EDGAR CAUTION: verify this is ok out of the loop 
@@ -2915,7 +2927,7 @@ class Model(object):
         if (self.verbose >= 1):
             self.logger.info('Setting NLTE for Ca II 8542 A to {0}'.format(self.use_nlte))
 
-    def synthesize(self, perturbation=False, method=None,muAllen=1.0,frac=None,fractional=False,obj=None,plot=None,ax=None):
+    def synthesize(self, FtS=None, perturbation=False, method=None,muAllen=1.0,frac=None,fractional=False,obj=None,plot=None,ax=None):
         """
         Synthesize all atmospheres
 
@@ -2930,6 +2942,7 @@ class Model(object):
         None
 
         """
+        if FtS is not None:print("WARNING: hazel.model does not allow saving to file yet. Use hazel.modelRT instead.")
         if frac is True:fractional=frac #abreviated keyword to fractional
 
         self.muAllen=muAllen #mu where Allen continuum shall be taken for normalizing Stokes output 
@@ -2981,6 +2994,9 @@ class Model(object):
             else:#plot is None because synthesize routine was called without intention of plotting or from mutation
                 if obj is None:TBD=1                
             
+            if not self.built_coeffs:
+                cd,cd2=self.build_coeffs(k) #set sp.etas and sp.rhos
+
         #return ax
 
     def find_active_parameters(self, cycle):
