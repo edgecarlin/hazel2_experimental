@@ -1144,6 +1144,7 @@ contains
 
     end subroutine lin_interpol 
 
+
 ! ---------------------------------------------------------
 ! Given etaI, etaQ, etaU, etaV, rhoQ, rhoU and rhoV, fill the absorption matrix
 ! ---------------------------------------------------------     
@@ -1168,6 +1169,7 @@ contains
         matrix(4,3) = -rhoQ  
         
     end subroutine fill_absorption_matrix
+
 
 !--------------------------------------------------------------
 ! Inversion of a 4x4 matrix

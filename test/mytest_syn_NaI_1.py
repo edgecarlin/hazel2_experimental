@@ -25,6 +25,7 @@ m1 = hazel.Model(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
 cdic={'ref frame': 'LOS'}#common args to all chromospheres
 chs,txt=m1.add_Nchroms(['c0','c1'],cdic,hz=[0.,0.]) #return chs objects and tags
 
+#important: linehazel is now line and atom is not a necessary keyword anymore
 s1=m1.add_spectrum('s1', atom='sodium',linehazel='5895',wavelength=[5894, 5897, nx], 
 	topology='c0->c1',los=[0.,0.,90.],boundary=[s0,sx,sx,sx])	;m1.setup() 
 

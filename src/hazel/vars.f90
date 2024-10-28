@@ -11,6 +11,7 @@ implicit none
 	
 	integer :: isti, idep, imag, linear_solver, use_paschen_back, verbose_mode, working_mode, synthesis_method
 	integer :: use_mag_opt_RT, use_stim_emission_RT, nocoh !EDGAR:adding nocoh
+	
 	!real(kind=8) :: delta_collision,delta_collk1,delta_collk2 !EDGAR adding coll rates for k1 and k2
 	
 	real(kind=8) :: fact(0:301)
@@ -48,6 +49,8 @@ implicit none
 		logical :: recompute_see_rtcoef
 	end type variable_parameters
 	
+	real(kind=8) :: identt4(4,4)
+
 	type fixed_parameters
 		real(kind=8) :: thetad, chid, gammad, omin, omax, wl
 		real(kind=8) :: thetad_old, chid_old, gammad_old
@@ -60,7 +63,7 @@ implicit none
 		real(kind=8), pointer :: upper_direct(:), lower_direct(:), stokes_boundary(:,:)
 		real(kind=8) :: volper
 		integer :: DIRmaxf, stokes_boundary_len
-		real(kind=8), dimension(4) :: nbarExternal, omegaExternal
+		real(kind=8), dimension(4) :: nbarExternal, omegaExternal !EDGAR: these should have dynamic atom%ntran points
 		real(kind=8), pointer :: epsilon(:,:), eta(:,:), epsilon_zeeman(:,:), eta_zeeman(:,:)
 		real(kind=8), pointer :: eta_stim(:,:), eta_stim_zeeman(:,:), mag_opt(:,:), mag_opt_zeeman(:,:)
 		real(kind=8), pointer :: mag_opt_stim(:,:), mag_opt_stim_zeeman(:,:)

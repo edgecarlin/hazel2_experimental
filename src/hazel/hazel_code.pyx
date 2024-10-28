@@ -3,7 +3,7 @@ from numpy cimport ndarray as ar
 from numpy cimport npy_bool as nbool
 from numpy import empty, linspace, zeros, array
 
-dni=1
+dni=3
 
 cdef extern:
 	void c_rtcoeffs(int* index, double* B1Input, double* hInput, int* transInput, double* anglesInput, 
@@ -12,7 +12,11 @@ cdef extern:
 		int* atompolInput,int* magoptInput,int* stimemInput,int* nocohInput, double* dcolInput,
 		double* wavelengthOut, nbool* recomputed,double* epsOut,double* etaOut,double* rhoOut, int* error)
 
-	void c_rt_synthesis(int* index,int* dn, int* synMethIn, double* hIn, double* tau1In, double* betaIn,
+	void c_direct_synthesis(int* nl,int* nz,int* nsteps, int* dn, int* method, double* ds, 
+		double* eps, double* eta, double* rho,double* stkIn,
+		double* stkOut, int* error)
+
+	void c_rt_synthesis(int* index,int* dn, int* synMethIn, double* hIn, double* tauIn, double* betaIn,
 		double* boundaryIn, int* nLambdaIn, double* epsIn, double* etaIn, double* rhoIn,
 		double* stokesOut, int* error)
 
@@ -39,9 +43,12 @@ def _rtcoeffs(int index=1, ar[double,ndim=1] B1Input=zeros(3), double hInput=3.0
 	cdef:
 		ar[double,ndim=1] wavelengthOut = empty(nLambdaInput, order='F')
 		nbool recomputed = True
-		ar[double,ndim=3] epsOut = empty((1,4,nLambdaInput), order='F')
-		ar[double,ndim=3] etaOut = empty((1,4,nLambdaInput), order='F')
-		ar[double,ndim=3] rhoOut = empty((1,3,nLambdaInput), order='F')
+		ar[double,ndim=3,mode='fortran'] epsOut = empty((nLambdaInput,1,4), order='F') #this is NO mode='fortran'
+		ar[double,ndim=3,mode='fortran'] etaOut = empty((nLambdaInput,1,4), order='F') # and init NOT order fortran 
+		ar[double,ndim=3,mode='fortran'] rhoOut = empty((nLambdaInput,1,3), order='F')  # the latter is unimportant
+		#ar[double,ndim=3] epsOut = empty((1,4,nLambdaInput), order='F')
+		#ar[double,ndim=3] etaOut = empty((1,4,nLambdaInput), order='F')
+		#ar[double,ndim=3] rhoOut = empty((1,3,nLambdaInput), order='F')
 		int error
 
 	#calls fortran routine c_hazel in hazel_py.f90
@@ -76,18 +83,37 @@ def _rtcoeffs(int index=1, ar[double,ndim=1] B1Input=zeros(3), double hInput=3.0
 		error: (int) zero if everything went OK
 	"""
 
+def _direct_synthesis(int nl=128, int nz=1,int nsteps=1,int dn=dni,
+	int method=5, ar[double,ndim=1] ds=zeros(101),
+	#ar[double,ndim=3,mode='fortran'] eps=zeros((128,4,100), order='F'),
+	#ar[double,ndim=3,mode='fortran'] eta=zeros((128,4,100), order='F'),
+	#ar[double,ndim=3,mode='fortran'] rho=zeros((128,3,100), order='F'),
+	ar[double,ndim=3,mode='fortran'] eps=zeros((128,100,4), order='F'), 
+	ar[double,ndim=3,mode='fortran'] eta=zeros((128,100,4), order='F'),
+	ar[double,ndim=3,mode='fortran'] rho=zeros((128,100,3), order='F'),
+	ar[double,ndim=2,mode='fortran'] stkIn=zeros((128,4), order='F') ):
+
+	cdef:		
+		ar[double,ndim=2,mode='fortran'] stkOut = empty((nl,4), order='F') #this IS mode='fortran'
+		int error
+
+	c_direct_synthesis(&nl, &nz, &nsteps, &dn, &method, &ds[0], 
+		&eps[0,0,0], &eta[0,0,0], &rho[0,0,0], &stkIn[0,0],
+		<double*> stkOut.data, &error)
+    
+	return stkOut, error
+
 def _rt_synthesis(int index=1,int dn=dni, int synMethIn=5, ar[double,ndim=1] hIn=zeros(dni), 
 	ar[double,ndim=1] tauIn=zeros(dni), ar[double,ndim=1] betaIn=zeros(dni), 
 	ar[double,ndim=2,mode='fortran'] boundaryIn=zeros((4,128)),int nLambdaIn=128,
-	ar[double,ndim=3,mode='fortran'] epsIn=zeros((dni,4,128)),
-	ar[double,ndim=3,mode='fortran'] etaIn=zeros((dni,4,128)),
-	ar[double,ndim=3,mode='fortran'] rhoIn=zeros((dni,3,128)) ):
+	ar[double,ndim=3,mode='fortran'] epsIn=zeros((dni,4,128), order='F'),
+	ar[double,ndim=3,mode='fortran'] etaIn=zeros((dni,4,128), order='F'),
+	ar[double,ndim=3,mode='fortran'] rhoIn=zeros((dni,3,128), order='F') ):
 
 	cdef:		
-		ar[double,ndim=2] stokesOut = empty((4,nLambdaIn), order='F')
+		ar[double,ndim=2,mode='fortran'] stokesOut = empty((4,nLambdaIn), order='F')
 		int error
 
-	#calls fortran routine c_hazel in hazel_py.f90
 	c_rt_synthesis(&index, &dn, &synMethIn, &hIn[0], &tauIn[0], &betaIn[0], 
 		&boundaryIn[0,0], &nLambdaIn, &epsIn[0,0,0],&etaIn[0,0,0],&rhoIn[0,0,0],
 		<double*> stokesOut.data, &error)

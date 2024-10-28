@@ -3,34 +3,38 @@ import matplotlib.pyplot as pl
 import numpy as np
 import sys
 
-nx=150
-p1,p0=np.ones(nx),np.zeros(nx) 
+#fn='m1_coeffs_7p.hazexp'
+fn='m1_coeffs_7p_test.hazexp'
+#fn='m1_coeffs_57p.hazexp'
+#fn='m1_coeffs_57p_static.hazexp'#--> many points should not boost opacity
 
-fn='m1_coeffs_ref1.hazex'
-
-if 0==1:
+if 1==1:
+	m1 = hazel.ModelRT(atomfile='sodium_hfs.atom',apmosekc='1110')
+	cdic={'ref frame': 'LOS'}#common to all cells
+	to=m1.add_funcatmos(7,cdic)#,hzlims=[0.,1500.],hztype='parab')#functional atmosphere 
+	m1.add_spectrum('s1', line='5895',wavelength=[5894., 5897., 150], 
+		topology=to,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
 	#----------------------------------------------------------------------------------
-	m1 = hazel.ModelRT(mode='synthesis',atomfile='sodium_hfs.atom',apmosekc='1110')
-	cdic={'ref frame': 'LOS'}#common args to all chromospheres
-	topo = m1.add_funcatmos(6,cdic,hzlims=[0.,1500.],hztype='parab')#add functional atmosphere 
-	s1=m1.add_spectrum('s1', atom='sodium',linehazel='5895',wavelength=[5894, 5897, nx], 
-		topology=topo,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
-	#----------------------------------------------------------------------------------
-	dlims={'B1':[350,100], 'B2': [89,90], 'B3':[44,49],\
-		'tau':[6.,2.],'v':[0,4],'deltav':[4,7],'a':[0.2,0.1] ,\
-		'j10':[0.01,0.02],'j20f':[1,1.5],'beta':[1,1]} #...'ff':[1,1],'nbar':[1,1]}
+	dlims={'B1':[350.,100.], 'B2': [89.,90.], 'B3':[44.,49.],\
+		'tau':[6.,0.1],'v':[0.,4.],'deltav':[4.,7.],'a':[0.2,0.1] ,\
+		'j10':[0.01,0.02],'j20f':[1.,1.5],'beta':[1.,1.]} #...'ff':[1,1],'nbar':[1,1]}
 
 	pkws={'plotit':9,'nps':3,'var':'mono','method':1}
-	hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars following a given-order function
-
-	m1.synthesize(plot='s1',FtS=fn)#frac=True  muAllen=0.9; m1.exit_hazel()
+	hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars with given-order function
+	m1.synthesize(plot='s1')#,FtS=fn)#frac=True  muAllen=0.9;
 else: 
-	m1,des=hazel.readmodel(fn) #read from file
-	m1.synthesize(plot='s1',FtR=fn)
+	m1,des=hazel.readmodel(fn) #,'Emissivity'
+	for mm in ['EvolOp']:m1.synthesize(plot='s1',FtR=fn,method=mm)
 	#m1.mutates('s1', apmosekc='0110')
 
 m1.exit_hazel()
 
+'''If you call synthesize repeatedly is ok, the new plots will be overplot and no 
+replicant figures will pop up ocuppying memory.
+But everytime you open or create a new model, even with the same name, the figure axes
+shall be to None or recreated, leading to repeat a new figure every time.
+Nothing that one can do to avoid this automatically, the user must just now
+how these objects behave.'''
 
 #fname='m1_coeffs_12octC.ehazel'
 #hazel.savemodel([m2,dlims],fname)

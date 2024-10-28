@@ -19,23 +19,19 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
     integer(c_int), intent(in) :: transInput, index !EDGAR: index runs from 1 to n_chromo
     integer(c_int), intent(in) :: nLambdaInput,atompolInput,magoptInput,stimemInput,nocohInput
     real(c_double), intent(in), dimension(nLambdaInput) :: lambdaAxisInput
-    real(c_double), intent(in), dimension(3) :: B1Input,anglesInput
-    real(c_double), intent(in), dimension(atom%ntran) :: nbarInput, omegaInput 
-    real(c_double), intent(in), dimension(3)  :: dcolInput
-    real(c_double), intent(in), dimension(atom%ntran) :: j10Input  
-    real(c_double), intent(in) :: hInput
-    real(c_double), intent(in) :: dopplerWidthInput, dampingInput, dopplerVelocityInput
+    real(c_double), intent(in), dimension(3) :: B1Input,anglesInput,dcolInput
+    real(c_double), intent(in), dimension(atom%ntran) :: nbarInput, omegaInput , j10Input
+    real(c_double), intent(in) :: dopplerWidthInput, dampingInput, dopplerVelocityInput,hInput
     real(c_double), intent(out), dimension(nLambdaInput) :: wavelengthOut
-    real(c_double), intent(out), dimension(1,4,nLambdaInput) :: epsOut!EDGAR: containers for opt coeffs
-    real(c_double), intent(out), dimension(1,4,nLambdaInput) :: etaOut !EDGAR: containers for opt coeffs
-    real(c_double), intent(out), dimension(1,3,nLambdaInput) :: rhoOut !EDGAR: containers for opt coeffs
+    real(c_double), intent(out), dimension(nLambdaInput,1,4) :: epsOut,etaOut
+    real(c_double), intent(out), dimension(nLambdaInput,1,3) :: rhoOut 
+!    real(c_double), intent(out), dimension(1,4,nLambdaInput) :: epsOut,etaOut
+!    real(c_double), intent(out), dimension(1,3,nLambdaInput) :: rhoOut 
     integer(c_int), intent(out) :: error
     logical(c_bool),intent(out) :: recomputed
-
-    integer :: n, nterml, ntermu
     
     real(c_double) :: ae, wavelength, reduction_factor, reduction_factor_omega !, j10 !EDGAR remove j10
-    integer :: i, j
+    integer :: n, nterml, ntermu, i, j
     logical :: recompute_see_rtcoef
 
     error = 0
@@ -46,27 +42,27 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
     !With F90 column-major order, the leftmost subscript varies most rapidly in loops
     !efficient order is then having spatial dimension (ncells) in last (rightmost) position.
 
-    params(index)%recompute_see_rtcoef = .True.
+    params(index)%recompute_see_rtcoef = .True. !ALWAYS TRUE FOR TESTING
     ! If the parameters on which the RT coefficients depend on change, then recompute the coefficients
-    if (params(index)%dopplerVelocityInput_old == dopplerVelocityInput .and. &
-        params(index)%dopplerWidthInput_old == dopplerWidthInput .and. &
-        params(index)%dampingInput_old == dampingInput .and. &
-        fixed(index)%thetad_old == anglesInput(1) .and. &
-        fixed(index)%chid_old == anglesInput(2) .and. &
-        fixed(index)%gammad_old == anglesInput(3) .and. &
-        all(params(index)%B1Input_old == B1Input ) ) then
-            params(index)%recompute_see_rtcoef = .False.
-    endif
+    !if (params(index)%dopplerVelocityInput_old == dopplerVelocityInput .and. &
+    !    params(index)%dopplerWidthInput_old == dopplerWidthInput .and. &
+    !    params(index)%dampingInput_old == dampingInput .and. &
+    !    fixed(index)%thetad_old == anglesInput(1) .and. &
+    !    fixed(index)%chid_old == anglesInput(2) .and. &
+    !    fixed(index)%gammad_old == anglesInput(3) .and. &
+    !    all(params(index)%B1Input_old == B1Input ) ) then
+    !        params(index)%recompute_see_rtcoef = .False.
+    !endif
 
     !--------------------------------
     !CAREFUL: DO NOT REMOVE THIS BECAUSE SOME VARS ARE GLOBAL IN vars.f90
     linear_solver = 0       
     working_mode = 0 !0: synthesis. 1: inversion
     use_paschen_back = 1 
-    isti = 1  !stimulated emission term in SEE 
+    isti = 1  !stimulated emission term in SEE -->THIS TERMS ALWAYS ACTIVATED IN SEE
     imag = 1  !Hanle term in SEE 
-    idep = 0  !depolarizing collision term in SEE
 
+    idep = 0  !depolarizing collision term in SEE
     if (dcolInput(1) /= 0.0 .or. dcolInput(2) /= 0.0 .or. dcolInput(3) /= 0.0) then
         idep = 1  
         params%delta_collision = dcolInput(1)   
@@ -76,25 +72,27 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
 
     fixed(index)%use_atomic_pol = atompolInput !0(no atompol),1 (all atompol)    
     use_mag_opt_RT = magoptInput
-    use_stim_emission_RT = stimemInput
+    use_stim_emission_RT = stimemInput  
     
     params%vmacro = dopplerVelocityInput
-    params(index)%nocoh = -99 !this absurd value makes level coherences to be fully added in SEE when nocohInput=0
+    params(index)%nocoh   =  -99 !this absurd value makes level coherences to be fully added in SEE when nocohInput=0
     if (nocohInput /= 0) params(index)%nocoh = nocohInput  !gives the atom level in which cohs will be deactivated
    !--------------------------------
-    params(index)%bgauss = B1Input(1)
-    params(index)%thetabd = B1Input(2)
-    params(index)%chibd = B1Input(3)
-    params(index)%height = hInput
-    params(index)%vdopp = dopplerWidthInput
-    params(index)%damping = dampingInput
-    fixed(index)%nemiss = transInput
-    fixed(index)%thetad = anglesInput(1)
-    fixed(index)%chid = anglesInput(2)
-    fixed(index)%gammad = anglesInput(3)           
+    params(index)%bgauss  =  B1Input(1)
+    params(index)%thetabd =  B1Input(2)
+    params(index)%chibd   =  B1Input(3)
+    params(index)%height  =   hInput
+    params(index)%vdopp   =  dopplerWidthInput
+    params(index)%damping =  dampingInput
+    fixed(index)%nemiss   =  transInput
+    fixed(index)%thetad   =  anglesInput(1)
+    fixed(index)%chid     =  anglesInput(2)
+    fixed(index)%gammad   =  anglesInput(3)           
     fixed(index)%damping_treatment = 0
-    fixed(index)%wl = atom%wavelength(transInput) ! wavelength of transition to be synthesized
-    fixed(index)%nbarExternal = nbarInput  !typically set to ones (Allen nbars) in .py 
+    fixed(index)%wl       =  atom%wavelength(transInput) ! wavelength of transition to be synthesized
+    
+    !CAREFUL:these are hardcoded to 4 elements max, they should be dynamically allocated to atom%ntra points like j10
+    fixed(index)%nbarExternal  = nbarInput  !typically set to ones (Allen nbars) in .py :
     fixed(index)%omegaExternal = omegaInput !typically set to zeroes (no anisotropy) in .py
     !If nbar=0 or omega=0, use the numbers from Allen. If not, treat them as reduction factors
     
@@ -116,9 +114,6 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
     !wavelengthOut = observation(index)%wl + fixed(index)%wl
     fixed(index)%omax = minval(lambdaAxisInput)
     fixed(index)%omin = maxval(lambdaAxisInput)
-
-    params(index)%recompute_see_rtcoef= .True. !ALWAYS TRUE FOR TESTING
-
 
     if (params(index)%recompute_see_rtcoef) then        
 
@@ -146,93 +141,159 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
         enddo
         if (fixed(index)%use_atomic_pol == 1 ) then!when no atompol case, extract only zeeman coefs.
             do i = 1, 4 ! Emission and Absorption including stimulated emission
-                epsOut(1,i,:) = fixed(index)%epsilon(i-1,:) 
-                etaOut(1,i,:) = fixed(index)%eta(i-1,:) - use_stim_emission_RT * fixed(index)%eta_stim(i-1,:) !eta_I,eta_Q,eta_U,eta_V
+                epsOut(:,1,i) = fixed(index)%epsilon(i-1,:) 
+                etaOut(:,1,i) = fixed(index)%eta(i-1,:) - use_stim_emission_RT * fixed(index)%eta_stim(i-1,:) !eta_I,eta_Q,eta_U,eta_V
+                !epsOut(1,i,:) = fixed(index)%epsilon(i-1,:) 
+                !etaOut(1,i,:) = fixed(index)%eta(i-1,:) - use_stim_emission_RT * fixed(index)%eta_stim(i-1,:) !eta_I,eta_Q,eta_U,eta_V
             enddo
             if (use_mag_opt_RT == 1) then
                 do i = 1, 3
-                    rhoOut(1,i,:)= fixed(index)%mag_opt(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i,:) !rho1(Q),rho2(U),rho3(V)
+                    rhoOut(:,1,i)= fixed(index)%mag_opt(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i,:) !rho1(Q),rho2(U),rho3(V)
+                    !rhoOut(1,i,:)= fixed(index)%mag_opt(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i,:) !rho1(Q),rho2(U),rho3(V)
                 enddo
             endif  
         else
             do i = 1, 4 ! Emission and Absorption including stimulated emission
-                epsOut(1,i,:) = fixed(index)%epsilon_zeeman(i-1,:) 
-                etaOut(1,i,:) = fixed(index)%eta_zeeman(i-1,:)- use_stim_emission_RT * fixed(index)%eta_stim_zeeman(i-1,:) !eta_I,eta_Q,eta_U,eta_V
+                epsOut(:,1,i) = fixed(index)%epsilon_zeeman(i-1,:) 
+                etaOut(:,1,i) = fixed(index)%eta_zeeman(i-1,:)- use_stim_emission_RT * fixed(index)%eta_stim_zeeman(i-1,:) !eta_I,eta_Q,eta_U,eta_V
+                !epsOut(1,i,:) = fixed(index)%epsilon_zeeman(i-1,:) 
+                !etaOut(1,i,:) = fixed(index)%eta_zeeman(i-1,:)- use_stim_emission_RT * fixed(index)%eta_stim_zeeman(i-1,:) !eta_I,eta_Q,eta_U,eta_V
             enddo
             if (use_mag_opt_RT == 1) then
                 do i = 1, 3
-                    rhoOut(1,i,:)= fixed(index)%mag_opt_zeeman(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i,:) !rho1(Q),rho2(U),rho3(V)
+                    rhoOut(:,1,i)= fixed(index)%mag_opt_zeeman(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i,:) !rho1(Q),rho2(U),rho3(V)
+                    !rhoOut(1,i,:)= fixed(index)%mag_opt_zeeman(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i,:) !rho1(Q),rho2(U),rho3(V)
                 enddo
             endif  
         endif
 
     endif
 
-    params(index)%dopplerVelocityInput_old = dopplerVelocityInput
-    params(index)%dopplerWidthInput_old = dopplerWidthInput
-    params(index)%dampingInput_old = dampingInput
-    params(index)%B1Input_old = B1Input !B1Input
-    fixed(index)%thetad_old = anglesInput(1)
-    fixed(index)%chid_old = anglesInput(2)
-    fixed(index)%gammad_old = anglesInput(3)
     wavelengthOut = observation(index)%wl + fixed(index)%wl
+
+    !params(index)%dopplerVelocityInput_old = dopplerVelocityInput
+    !params(index)%dopplerWidthInput_old = dopplerWidthInput
+    !params(index)%dampingInput_old = dampingInput
+    !params(index)%B1Input_old = B1Input !B1Input
+    !fixed(index)%thetad_old = anglesInput(1)
+    !fixed(index)%chid_old = anglesInput(2)
+    !fixed(index)%gammad_old = anglesInput(3)
     
+    !IT SEEMS IT IS NOT NEEDED, BUT FROM HERE WE CAN ALWAYS DEALLOCATE FIXED PARAMETERS ALLOCATED IN rt_coef.f90 
+    !IF WE DETECT ANY STRANGE VALUES APPEARING IF FUTURE CONSECUTIVE CALLS TO THIS ROUTINE
+    call deallocate_all(index)
+
     RETURN          
 end subroutine c_rtcoeffs
 
+    !call system_clock(count, rate) ; Start = count
+    !call system_clock(count)    ;print*,count,Start,real(count-Start)/real(rate)
+    !With F90 column-major order, the leftmost subscript for loops varies most rapidly in memory
+    !should then have stokes par in rightmost or middle position and frequncies on the leftmost.
+
+    !boundaryIn[0,90]-->asfortranarray(boundaryIn)-->boundaryIn(1,91)
+    !epsIn[0,0,90]-->asfortranarray(epsIn)-->epsIn(1(fijo un 1),1,91) !print*,eps(91,1,1) 
+
+subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
+    stkOut,error) bind(c)
+    integer(c_int), intent(in) :: nl,nz,nsteps,dn, method
+    real(c_double), intent(in),dimension(nz) :: ds 
+!    real(c_double), intent(in), dimension(nl,4,nz) :: eps,eta
+!    real(c_double), intent(in), dimension(nl,3,nz) :: rho
+    real(c_double), intent(in), dimension(nl,nz,4) :: eps,eta
+    real(c_double), intent(in), dimension(nl,nz,3) :: rho
+    real(c_double), intent(in), dimension(nl,4) :: stkIn !combine stkIn and stkOut in one in-out var
+    real(c_double), intent(out), dimension(nl,4) :: stkOut
+    integer(c_int), intent(out) :: error
+    !avoid setting eeini or othe var here, it will be remembered with attr save between calls to Hazel from Python
+    integer ::  kk, kz, count, rate,ii, ee, eeini 
+    real(kind=8) ::  Start, End
+
+    identt4 = 0.d0  !init identity matrix for the whole ray
+    do kk = 1, 4
+        identt4(kk,kk) = 1.d0 
+    enddo
+
+    error_code = 0     ;synthesis_method=method!passes through vars
+    
+    stkOut=stkIn    ;eeini=0
+    if (dn/=0) eeini=1  !0 for dn=0 or 1 otherwise  
+    ee=eeini ! ee=eeini  ; ii=ee-eeini+1   ;ee=ii+dn   with eeini=0 for dn=0 or 1 otherwise    
+    
+    do kk=0,nsteps-1 !divides ray in pieces remain=mod(nz,dn)
+        ii=ee-eeini+1     ;ee=ii+dn !init,end of pieces 
+        !print*,ii,ee!, eeini,dn,nsteps,ds(ii:ee),eps(1,ii:ee,1)
+        print*,ii,ee
+!    
+        call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut) !efficient segmentation in stokes pars and ray pieces
+        
+
+        !call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 
+        !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &
+        !    rho(:,ii:ee,3),stkOut) !efficient segmentation in stokes pars and ray pieces
+
+        !call synth_methods(nl, ds(ii:ee), eps(ii:ee,:,:), eta(ii:ee,:,:), rho(ii:ee,:,:), stkOut)
+        !call synth_methods(nl, ds(ii:ee), eps(:,:,ii:ee), eta(:,:,ii:ee), rho(:,:,ii:ee), stkOut)
+        !if (error_code == 1) return error=1   ! If synthesis gives error       
+    enddo
+        
+  RETURN
+          
+end subroutine c_direct_synthesis
+
+!--------------------------------------------------------------------------------------------------
+!ALTHOUGH THIS ROUTINE IS ONLY READY TO USE METHODS THAT TACKLE ONE SPATIAL POINT AT A TIME, ITS INPUT 
+!PARAMETERS HAS SPATIAL DIMENSION TO EVENTUALLY IMPROVING THE ROUTINE TO ACCEPT MORE SPATIAL POINTS:
+!--------------------------------------------------------------------------------------------------
 subroutine c_rt_synthesis(index,dn, synMethIn, hIn, tauIn, betaIn, boundaryIn, &
     nLambdaIn, epsIn, etaIn, rhoIn, stokesOut,error) bind(c)
-    !With F90 column-major order, the leftmost subscript varies most rapidly in loops
-    !efficient order is then having spatial dimension (ncells) in last (rightmost) position.
-    !frequencies should then always be to the rightmost
+    !With F90 column-major order, the leftmost subscript for loops varies most rapidly in memory
+    !efficient order should then have stokes par in last (rightmost) position and frequncies on the leftmost.
     integer(c_int), intent(in) :: index,dn, synMethIn
-    integer(c_int), intent(in) :: nLambdaIn
-    real(c_double), intent(in),dimension(dn) :: tauIn,hIn,betaIn 
-    real(c_double), intent(in), dimension(4,nLambdaIn) :: boundaryIn
+    integer(c_int), intent(in) :: nLambdaIn 
+    real(c_double), intent(in), dimension(4,nLambdaIn) :: boundaryIn!--> were all passed as fortran arrays
+    real(c_double), intent(in), dimension(dn) :: hIn, tauIn,betaIn
     real(c_double), intent(in), dimension(dn,4,nLambdaIn) :: epsIn,etaIn
     real(c_double), intent(in), dimension(dn,3,nLambdaIn) :: rhoIn
-    real(c_double), intent(out), dimension(4,nLambdaIn) :: stokesOut
+    real(c_double), intent(out),dimension(4,nLambdaIn) :: stokesOut
     integer(c_int), intent(out) :: error
-
     integer :: ii, jj
 
     error_code = 0
 
-    !print*,dn,index,synMethIn,nLambdaIn,hIn,betaIn,tauIn
-    !boundaryIn[0,90]-->asfortranarray(boundaryIn)-->boundaryIn(1,91)
-    !epsIn[0,0,90]-->asfortranarray(epsIn)-->epsIn(1(fijo un 1),1,91)
+    call alloc_outer_coefs(nLambdaIn,fixed(index))!allocate at least one index of pointers for the RT coeffs as in _rtcoeffs
 
-    !we need allocate at least one index of pointers for the RT coeffs as in _rtcoeffs
-    fixed(index)%no = nLambdaIn
-    call alloc_rt_coef(fixed(index))
-
-    synthesis_method=synMethIn
+    synthesis_method=synMethIn  !not using it
     params(index)%height = hIn(1)
     params(index)%dtau = tauIn(1)
     params(index)%beta = betaIn(1)
 
     !allocate the standard containers for output and boundary
-    observation(index)%n = fixed(index)%no
-    if (.not.associated(inversion(index)%stokes_unperturbed)) allocate(inversion(index)%stokes_unperturbed(0:3,fixed(index)%no))
-    if (.not.associated(fixed(index)%stokes_boundary)) allocate(fixed(index)%stokes_boundary(0:3,observation(index)%n))
-    
+    if (.not.associated(inversion(index)%stokes_unperturbed)) allocate(inversion(index)%stokes_unperturbed(0:3,nLambdaIn))
+    if (.not.associated(fixed(index)%stokes_boundary)) allocate(fixed(index)%stokes_boundary(0:3,nLambdaIn ))
     fixed(index)%stokes_boundary(0:3,:) = boundaryIn
-    
+
+
     do ii = 0, 3 !read input opt coeffs
         fixed(index)%epsilon(ii,:)=epsIn(1,ii+1,:)
         fixed(index)%eta(ii,:)=etaIn(1,ii+1,:)
         if (ii .ne. 0) fixed(index)%mag_opt(ii,:)=rhoIn(1,ii+1,:)
     enddo
 
-    ! Develop dn_synthesis to removing all these unnecessary structured data.
-    call dn_synthesis(params(index), fixed(index), observation(index), inversion(index)%stokes_unperturbed, error)
+    !dn_synthesis require these pars to be uncommented
+    fixed(index)%no = nLambdaIn
+    !observation(index)%n = nLambdaIn!fixed(index)%no
+    call dn_synthesis(params(index), fixed(index), inversion(index)%stokes_unperturbed, error)
 
     if (error_code == 1) return error_code   ! If synthesis gives error       
-    
+
     do ii = 1, 4
         stokesOut(ii,:) = inversion(index)%stokes_unperturbed(ii-1,:)
-    enddo
-    
+    enddo        
+
+    !call deallocate_all(index)
+    !call deallocate_innervars(index)
+    !call deallocate_outervars(index)
 
   RETURN
           
@@ -260,8 +321,8 @@ subroutine c_hazel(index, synMethInput,B1Input, hInput, tau1Input, boundaryInput
     real(c_double), intent(in), dimension(atom%ntran) :: j10Input  
     real(c_double), intent(in) :: hInput, tau1Input, dopplerWidthInput, dampingInput, dopplerVelocityInput, betaInput 
     real(c_double), intent(out), dimension(nLambdaInput) :: wavelengthOut
-    real(c_double), intent(out), dimension(4,nLambdaInput) :: stokesOut,epsOut!EDGAR: containers for opt coeffs
-    real(c_double), intent(out), dimension(7,nLambdaInput) :: etaOut,stimOut !EDGAR: containers for opt coeffs
+    real(c_double), intent(out), dimension(4,nLambdaInput) :: stokesOut,epsOut
+    real(c_double), intent(out), dimension(7,nLambdaInput) :: etaOut,stimOut 
     integer(c_int), intent(out) :: error
 
     integer :: n, nterml, ntermu
@@ -273,10 +334,6 @@ subroutine c_hazel(index, synMethInput,B1Input, hInput, tau1Input, boundaryInput
     error = 0
     error_code = 0
     
-    !print*,index, synMethInput, B1Input, hInput, tau1Input,transInput, anglesInput
-    !print*,nLambdaInput, dopplerWidthInput,dampingInput, j10Input, dopplerVelocityInput
-    !print*,betaInput, nbarInput, omegaInput, atompolInput,magoptInput,stimemInput,nocohInput,dcolInput
-
     params(index)%recompute_see_rtcoef = .True.
     ! If the parameters on which the RT coefficients depend on change, then recompute the coefficients
     if (params(index)%dopplerVelocityInput_old == dopplerVelocityInput .and. &
@@ -344,6 +401,7 @@ subroutine c_hazel(index, synMethInput,B1Input, hInput, tau1Input, boundaryInput
     fixed(index)%wl = atom%wavelength(transInput)
     
 ! Set the values of nbar and omega in case they are given
+!CAREFUL:these are hardcoded to 4 elements max, they should be dynamically allocated to atom%ntra points like j10
     fixed(index)%nbarExternal = nbarInput  !set to ones (Allen nbars) in chromosphere.py
     fixed(index)%omegaExternal = omegaInput !set to zeroes (no anisotropy) in chromosphere.py
 
@@ -522,7 +580,7 @@ subroutine c_hazel(index, synMethInput,B1Input, hInput, tau1Input, boundaryInput
     RETURN
           
 end subroutine c_hazel
-
+!!!---------------------------------------------------------------------------------------------
 PURE FUNCTION array_to_string(a)  RESULT (s)    ! copy char array to string
     !This func is needed to pass from array of chars(C way of dealing with strings) to fortran strings
     !Incompatibility issue will appear otherwise because we're interfacing using the ISO_C_BINDING 
@@ -537,7 +595,7 @@ PURE FUNCTION array_to_string(a)  RESULT (s)    ! copy char array to string
     END DO
 END FUNCTION array_to_string
 
-
+!!!---------------------------------------------------------------------------------------------
 subroutine c_init(nchar,atomfileInput,verbose,ntransOut) bind(c)
     integer(c_int), intent(in) :: nchar  !EDGAR: passes the length of the next string
     character(c_char), intent(in) :: atomfileInput(nchar) !EDGAR:a C array of characters is entering
@@ -585,14 +643,29 @@ subroutine c_init(nchar,atomfileInput,verbose,ntransOut) bind(c)
     RETURN
 end subroutine c_init
 
+
+!!!---------------------------------------------------------------------------------------------
 subroutine c_exit(index) bind(c)
 integer(c_int), intent(in) :: index
+    
+    call deallocate_all(index)
+    !print*, "Success Exiting Hazel Exp"
+end subroutine c_exit
 
-    if (associated(observation(index)%wl)) deallocate(observation(index)%wl)
-    if (associated(inversion(index)%stokes_unperturbed)) deallocate(inversion(index)%stokes_unperturbed)
-    if (associated(fixed(index)%stokes_boundary)) deallocate(fixed(index)%stokes_boundary)
+!!!---------------------------------------------------------------------------------------------
+subroutine deallocate_all(index)
+integer, intent(in) :: index
+    
+    call deallocate_outervars(index)
+    call deallocate_innervars(index)
+    
+end subroutine deallocate_all
+!!!---------------------------------------------------------------------------------------------
+subroutine deallocate_innervars(index)
+integer, intent(in) :: index
+    
 
-    !these seem to be allocated in synth.f90 but with the name of in_fixed
+    !these was allocated in synth.f90 but with the name of in_fixed or fin
     if (associated(fixed(index)%epsI)) then
         deallocate(fixed(index)%epsI)
         deallocate(fixed(index)%epsQ)
@@ -604,11 +677,23 @@ integer(c_int), intent(in) :: index
         deallocate(fixed(index)%etaV)
         deallocate(fixed(index)%rhoQ)
         deallocate(fixed(index)%rhoU)
-        deallocate(fixed(index)%rhoV)  
-        deallocate(fixed(index)%dtau)         
+        deallocate(fixed(index)%rhoV)          
     endif
 
-    !these seem to be allocated in rt_coeffs.f90 but with the name of in_fixed
+    if (associated(fixed(index)%dtau)) deallocate(fixed(index)%dtau) 
+
+    
+end subroutine deallocate_innervars
+
+!!!---------------------------------------------------------------------------------------------
+subroutine deallocate_outervars(index)
+integer, intent(in) :: index
+    
+    if (associated(observation(index)%wl)) deallocate(observation(index)%wl)
+    if (associated(inversion(index)%stokes_unperturbed)) deallocate(inversion(index)%stokes_unperturbed)
+    if (associated(fixed(index)%stokes_boundary)) deallocate(fixed(index)%stokes_boundary)
+
+    !these was allocated in rt_coeffs.f90 but with the name of in_fixed or fin
     if (associated(fixed(index)%epsilon)) then
         deallocate(fixed(index)%epsilon)
         deallocate(fixed(index)%epsilon_zeeman)
@@ -621,8 +706,12 @@ integer(c_int), intent(in) :: index
         deallocate(fixed(index)%mag_opt_stim)
         deallocate(fixed(index)%mag_opt_stim_zeeman)
     endif
+
     
-end subroutine c_exit
+end subroutine deallocate_outervars
+
+
+
 
 
 end module pyHazelMod

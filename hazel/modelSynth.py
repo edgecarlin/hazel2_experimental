@@ -109,6 +109,8 @@ class ModelRT(object):
         self.multipletsdic={'helium':{'10830': 10829.0911, '3888': 3888.6046, '7065': 7065.7085, '5876': 5875.9663},
                             'sodium':{'5895': 5895.924, '5889': 5889.95}}
 
+        self.lineatom={'5895': 'sodium', '5889': 'sodium', '10830': 'helium', '3888': 'helium', '7065': 'helium','5876': 'helium'}
+        
         self.atwsdic={'helium':4.,'sodium':22.9897,'calcium':40.08} 
 
 
@@ -117,7 +119,7 @@ class ModelRT(object):
 
         #apmosekcL is List whose last element is other list with dcol
         self.apmosekcl=self.get_apmosekcl(apmosekc,dcol,extrapars) 
-
+        self.choice=1#calcualte ds directly from hz introduced later in add_funcatmos
 
         #Dictio of minimum, default, and maximum values for all possible pars in Hazel atmosphere 
         #this could be conflicting with the use of "ranges", but such ranges seem to be applied only
@@ -127,7 +129,7 @@ class ModelRT(object):
         self.limB=4000.
         self.dmm={'Bx': [0.,100.,self.limB], 'By': [0.,100.,self.limB], 'Bz': [0.,100.,self.limB], \
             'B': [0.,100.,self.limB], 'thB': [0.,0.,180.], 'phB': [-360.,0.,360.], \
-                'tau':[0.,1.,20.],'v':[-50.,0., 50.],'deltav':[0.5,2.,15.], \
+                'tau':[0.,1.,1000.],'v':[-50.,0., 50.],'deltav':[0.5,2.,15.], \
                 'beta':[0.,1.,10.],'a':[0.,0.1,10.],'ff':[0.,1.,1.], \
                 'j10':[0.,0.,1.],'j20f':[0.,1.,1000.],'nbar':[0.,1.,1.]}
         self.dlims=None
@@ -145,8 +147,8 @@ class ModelRT(object):
         self.lock_fractional=None
 
         #synthesis methods to be implemented
-        self.methods_dicT={0:'Emissivity',1:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'Guau'} 
-        self.methods_dicS={'Emissivity':0,'Delo1':1,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'Guau':6} 
+        self.methods_dicT={0:'Emissivity',1:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'M1',7:'M2'} 
+        self.methods_dicS={'Emissivity':0,'Delo1':1,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'M1':6,'M2':7} 
         self.methods_list=[ss for ss,tt in self.methods_dicS.items()] #list with only the names
         
         self.synmethod=5 #5 is default and can be changed by add_spectrum and /or by synthesize.
@@ -294,6 +296,7 @@ class ModelRT(object):
             #plt.close(self.labelf1)  
             self.f1, self.ax1 = plt.subplots(2, 2,figsize=(pscale*tf,pscale*tf),label=self.labelf1)  
             self.ax1 = self.ax1.flatten()
+
         if fignum==self.labelf2:tbd=1
         if fignum==self.labelf3:tbd=1
         if fignum==self.labelf4:#ready to be usd but not yet in use
@@ -462,14 +465,18 @@ class ModelRT(object):
         '''
         eta_i=eta^A_i - eta^S_i and idem for rho (rho_i=rho^A_i - rho^S_i)
         In fortran vars in hazel_py.f90:  !eta_i(1:4)=eta(0:3) - stim(0:3)       !rho_i(1:3)=eta(1:3) - stim(1:3)  
-        Here: rteta=sp.rteta[atm,s,:]  s =0,1,2,3      .   rtrho=idem con s = 0,1,2
+        Here: rteta=sp.rteta[kw,kz,sto]  s =0,1,2,3      .   rtrho=idem con s = 0,1,2
         '''
         if self.coed1 is not None:print("DONE: RT coeffs were already built.")
         else:
             if type(sp) is not hazel.spectrum.Spectrum:sp=self.spectrum[sp]#from string to hazel.spectrum.Spectrum 
-            self.coed1={'epsi':sp.rteps[:,0,:],'epsq':sp.rteps[:,1,:],'epsu':sp.rteps[:,2,:],'epsv':sp.rteps[:,3,:],
-                'etai':sp.rteta[:,0,:],'etaq':sp.rteta[:,1,:],'etau':sp.rteta[:,2,:],'etav':sp.rteta[:,3,:],
-                ' ':np.zeros_like(sp.nwvl),'rhoq':sp.rtrho[:,0,:],'rhou':sp.rtrho[:,1,:],'rhov':sp.rtrho[:,2,:]}
+            self.coed1={'epsi':sp.rteps[:,:,0],'epsq':sp.rteps[:,:,1],'epsu':sp.rteps[:,:,2],'epsv':sp.rteps[:,:,3],
+                'etai':sp.rteta[:,:,0],'etaq':sp.rteta[:,:,1],'etau':sp.rteta[:,:,2],'etav':sp.rteta[:,:,3],
+                ' ':np.zeros_like(sp.nwvl),'rhoq':sp.rtrho[:,:,0],'rhou':sp.rtrho[:,:,1],'rhov':sp.rtrho[:,:,2]}
+
+            #self.coed1={'epsi':sp.rteps[:,0,:],'epsq':sp.rteps[:,1,:],'epsu':sp.rteps[:,2,:],'epsv':sp.rteps[:,3,:],
+            #    'etai':sp.rteta[:,0,:],'etaq':sp.rteta[:,1,:],'etau':sp.rteta[:,2,:],'etav':sp.rteta[:,3,:],
+            #    ' ':np.zeros_like(sp.nwvl),'rhoq':sp.rtrho[:,0,:],'rhou':sp.rtrho[:,1,:],'rhov':sp.rtrho[:,2,:]}
 
             self.coed2={'eps':sp.rteps,'etas':sp.rteta,'rhos':sp.rtrho}
         #return self.coed1,self.coed2
@@ -529,7 +536,7 @@ class ModelRT(object):
             for cc,coef in enumerate(lab):
                 row,col=np.divmod(cc,4)            
                 for k,at in enumerate(ats):
-                    if coef!=' ':lx, =ax[row,col].plot(lamax[xb:xt],cd[coef][k,xb:xt],alpha=alp[row]) 
+                    if coef!=' ':lx, =ax[row,col].plot(lamax[xb:xt],cd[coef][xb:xt,k],alpha=alp[row]) 
                     ax[row,col].set_title(mylab(coef))
                     ax[row,col].set_xlabel(mylab('xx'))
                     if (col==0) and (row ==1) and (k<10):lines.append(lx)                    
@@ -542,7 +549,7 @@ class ModelRT(object):
                 if (self.apmosekcl[1]=='0' and coef[0:3]=='rho'):alp=0.3
                 if coef in cd:
                     for k,at in enumerate(ats):
-                        ax[cc].plot(lamax[xb:xt],cd[coef][k,xb:xt],alpha=alp)
+                        ax[cc].plot(lamax[xb:xt],cd[coef][xb:xt,k],alpha=alp)
                         ax[cc].set_title(mylab(coefs[cc]))
                         ax[cc].set_xlabel(mylab('xx'))
 
@@ -711,13 +718,15 @@ class ModelRT(object):
         a few parameters from a previous synthesis. 
         The versatility of reading pars both from parsdic and from keywords, and the checking of 
         the pars as done originally when setting up the model, make this routine cumbersome.
-        
+  
         Future aspects to mutate : ref_frame, hz topology,los,boundary...  
         Due to the Python behavior, newmo=self is just a reference assignment where both variable names 
         point to the same object, it would only create newmo as a pointer to the object self, 
         without truly performing an indepedent copy. For doing a copy of arrays one has np.copy(). 
-        For objects/dictionaries we have deepcopy. 
-     
+        For objects/dictionaries we have copy.deepcopy if we want to make *new* independent copies of all
+        references stored in the object recursively or copy.copy to just copy references within the object
+        keeping a linkage, ie without creting a new independent object. 
+  
         Parsdic (and any other mutable type,lists or dictionaries) defined as keyword parameters
         will no reset their values between function calls, so having memory of previous  mutates()
         calls from main. If we do not want to use a DTO class or avoid parsdic, then we need to define its
@@ -1065,9 +1074,9 @@ class ModelRT(object):
 
 
     def add_spectrum(self, name, config=None, wavelength=None, topology=None, los=None, 
-        i0fraction=1.0,boundary=None, atom=None, synmethod=None,
-        linehazel=None, atmos_window=None, instrumental_profile=None,
-        wavelength_file=None):
+        i0fraction=1.0,boundary=None,  synmethod=None,
+        line=None, atmos_window=None, instrumental_profile=None,
+        wavelength_file=None):  #atom=None
         """
         Similar to add_spectral but with keywords and more compact.
         Programmatically add a spectral region
@@ -1153,14 +1162,6 @@ class ModelRT(object):
         
         #---------------------------------------------
         
-        #EDGAR: atom, line_to_index and line keywords moved to add_spectral
-        if (atom is not None) and (atom in self.atomsdic):
-            self.atom=atom#self.atom can be deleted because is not used anywhere else
-            self.line_to_index=self.atomsdic[atom]
-        else:
-            raise Exception('Atom is not specified or not in the database. Please, define a valid atom.')
-    
-        if (self.verbose >= 1):self.logger.info('Atom added.')
         
         '''
         EDGAR:The default initialization of self.synmethod was done in the init above. 
@@ -1182,11 +1183,17 @@ class ModelRT(object):
         #it seems lines for SIR read in add_photosphere were wrong because they were introduced programatically
         #with the field atm['spectral lines'] in add_photosphere, but there was no such a field defined anywhere 
         lineH= ''
-        if (linehazel is not None) and (linehazel in self.atomsdic[atom]):
-            lineH=linehazel #e.g. '10830'.  Lines for activating in Hazel atmos
+        #if (line is not None) and (line in self.atomsdic[atom]):
+        if (line is not None) and (line in self.lineatom):
+            lineH=line #e.g. '10830'.  Lines for activating in Hazel atmos
             if (self.verbose >= 1):self.logger.info("    * Adding HAZEL line : {0}".format(lineH))
+            #EDGAR:this avoids entering and checking atom as keyword:
+            self.atom=self.lineatom[lineH] #self.atom can be deleted because is not used anywhere else
+            self.line_to_index=self.atomsdic[self.atom]
+            if (self.verbose >= 1):self.logger.info('Atom added.')
         else:
             raise Exception('Line is not specified or not in the database. Please, define a valid line.')
+
 
         #Count chromospheres for defining optical coeffs containers, now that all atmospheres have been added
         self.nch=0  #n_chromospheres=0    
@@ -1201,13 +1208,13 @@ class ModelRT(object):
         self.spectrum[name] = Spectrum(wvl=wvl, 
             name=name, los=los, boundary=boundary, 
             instrumental_profile=instrumental_profile, 
-            root=self.root, wvl_lr=wvl_lr,lti=self.line_to_index,lineHazel=lineH,
+            root=self.root, wvl_lr=wvl_lr,lti=self.line_to_index,line=lineH,
             n_chromo=self.nch, synmethod=self.synmethod)
 
         #EDGAR: update spectrum object with the multiplets for later accesing it from synthesize at chromosphere.py
-        self.spectrum[name].multiplets = self.multipletsdic[atom] 
+        self.spectrum[name].multiplets = self.multipletsdic[self.atom] 
         #ntrans needed to define length of nbar,omega, and j10.
-        self.spectrum[name].ntrans = self.ntrans #len(self.multipletsdic[atom])
+        self.spectrum[name].ntrans = self.ntrans #len(self.multipletsdic[self.atom])
 
         #--EDGAR---------------------------------------------------------------
         #we are here defining the wavelength window for all atmospheres associated to this spectral region
@@ -1375,7 +1382,7 @@ class ModelRT(object):
         
         return hz 
 
-    def add_funcatmos(self,Ncells,ckey,hzlims=[0.,1500.],hztype='lin',topo=''):
+    def add_funcatmos(self,Ncells,ckey,hzlims=None,hztype='lin',topo=''):
         '''
         Creates and add a full chromosphere made of N elemental pieces/slabs/cells
         and making certain parameters to vary according to given P-order polinomials.
@@ -1406,6 +1413,10 @@ class ModelRT(object):
         if 'hzlims' in ckey:hzlims=ckey['hzlims']
         if 'hztype' in ckey:hztype=ckey['hztype']
         self.n_chromospheres=Ncells
+
+        if hzlims is None:
+            self.choice=0#calculate ds from tau in atm model
+            hzlims=[1.,1500.]#default just to fill something in chromospheres
         self.hzlims=hzlims
 
         self.hz=self.set_hz(hzlims=hzlims,hztype=hztype)
@@ -1849,7 +1860,7 @@ class ModelRT(object):
                 for subp, atm in enumerate(order):  #subp runs subpixels of topologies c1+c2                              
                     if (subp != 0):raise Exception("WARNING: Subpixel components are not yet allowed in this Model version.")
 
-            if (FtR == ''):    #if (fromfile == ''):     ...,FtS=saveto)
+            if (FtR == '') and np.all(self.spectrum[k].rteps==0):    #if (fromfile == ''):     ...,FtS=saveto)
                 self.solve_SEE_and_rtcoeffs(self.spectrum[k],FtS=FtS)
             else:
                 if self.spectrum[k].rteps is None:print("No opt. coeffs. available: load file or activate SEE.")
@@ -1877,8 +1888,8 @@ class ModelRT(object):
     def solve_SEE_and_rtcoeffs(self,sp,FtS=None):
         start = timer()
         #---------common variables to all cells in same ray--------------------------------
-        transIn = self.line_to_index[sp.lineHazel]#self.line_to_index[aself.active_line] 
-        lamaxIn = sp.wavelength_axis - sp.multiplets[sp.lineHazel] #sp.wavelength_axis - lam0
+        transIn = self.line_to_index[sp.line]#self.line_to_index[aself.active_line] 
+        lamaxIn = sp.wavelength_axis - sp.multiplets[sp.line] #sp.wavelength_axis - lam0
         #--------------------SOLVE SEE AND COEFFS FOR ALL CELLS----------------------------
         for kk in range(self.n_chromospheres): 
             BIn = aft(self.B2D[:,kk])
@@ -1895,39 +1906,70 @@ class ModelRT(object):
                 j10In, dopVelIn, nbarIn, omegaIn, aself.atompol,aself.magopt,aself.stimem,
                 aself.nocoh,np.asarray(aself.dcol) )
   
-            #OLD names:
-            #print(kk+1, BIn, hIn, transIn, sp.los, sp.nwvl, dopplerWidthIn, dampingIn,j10In, dopplerVelocityIn,
-            #nbarIn, omegaIn, aself.atompol,aself.magopt,aself.stimem,aself.nocoh,np.asarray(aself.dcol) ) 
-
             #3D opt coeffs (only 1 position for height dependence), for current slab self.index
-            l,recomp,sp.rteps[kk:kk+1,:,:],sp.rteta[kk:kk+1,:,:],sp.rtrho[kk:kk+1,:,:],error = \
+            #this was the old call for opt coeffs with (nch,4,self.nwvl)
+            #l,recomp,sp.rteps[kk:kk+1,:,:],sp.rteta[kk:kk+1,:,:],sp.rtrho[kk:kk+1,:,:],error = \
+            #hazel_code._rtcoeffs(*args) #accumulates solved opt coeffs at every point
+            #new call with opt coeffs having (nwvl,nch,4)
+            l,recomp,sp.rteps[:,kk:kk+1,:],sp.rteta[:,kk:kk+1,:],sp.rtrho[:,kk:kk+1,:],error = \
             hazel_code._rtcoeffs(*args) #accumulates solved opt coeffs at every point
 
+
         print("SEE and opt. coeffs. calculated in: {0:{pp}} s.\n".format(timer()-start,pp='11.5f'))
-
-        if (FtS != ''):hazel.savemodel([self],FtS) 
         
+        if (FtS != ''):hazel.savemodel([self],FtS) 
 
-    def cutting_pars(self,method):
-        dn,dn_dic=1,{'1':1,'5':1}  #complete it
-        dn=dn_dic[str(method)]
-        nsteps,kind=np.divmod(self.n_chromospheres,dn)
-        #nsteps:integer number of blocks of "dn" cells
-        #kind: index qunatifying remaining cells. Can be 0,1,,..,dn-1
-        if nsteps==0:raise Exception("WARNING: Multistep RT methods require more points in height.")            
-        if kind!=0:nsteps+=1#add the last step for the remaining cells
-        '''Multistep with step dn and Ncells-1 as last point:
-        step: ini:end
-        0: 0:dn  (for dn=3 : 0,1,2)
-        1: dn:2*dn
-        nk-1(last): (nk-1)*dn:(nk-1)*dn+kind'''
-            
-        return dn,nsteps,kind 
+
+    def cutting_pars(self,nz,method):
+        '''Numbers/schemes to segment ray . ii and ee given by this routine will only be used in Python loop:
+        >>> Point by point methods (Method 0,Method 5): np=1, dn=0=np-1
+            *     *     *   
+            1     2     3    ..... FORTRAN LABELLING
+            0 1   1 2   2 3   ...  PYTHON LABELLING
+            Nsteps= Nz             nsteps:integer number of blocks of "dn" cells and "np" points
+            kk = 0 a Nsteps-1
+            ii = 1 + kk*dnfac = ee + 1 (F90),  kk*dnfac= ee (Python) with eeini=0 the first time
+            ee = ii + dn (F90),     ii+dn+1 (Pyhton)
+
+        >>> One-cell methods (Method 1,...): np=2, dn=1=np-1.
+            ds1       ds2      ds3 
+            *--*      *--*     *--*  
+            1  2      2  3     3  4    ...  FORTRAN LABELLING         
+            0  1 2    1  2 3   2  3 4  ...  PYTHON LABELLING
+            Nsteps= Nz - 1 = 1, 2, 3 for Nz=2,3,4...
+            kk=0 a Nsteps-1 
+            ii=1+kk*dnfac = ee= 1,2,3,...(F90)  = kk*dnfac = ee-1 (Python)   with eeini=1 the first time
+            ee=ii+dn= 2,3,4,...(F90)  = ii + dn+1 (Python)
+
+        >>> Method 6: SIMPLE Rule, np=3,dn=2=np-1. Example Nz=7 points:
+            ds1 ds2      ds3 ds4     ds3 ds4
+            *--*--*      *--*--*     *--*--*  
+            1  2  3      3  4  5     5  6  7   ....  FORTRAN LABELLING
+            0  1  2  3   2  3  4 5   4  5  6 7  ...  PYTHON LABELLING
+            Nsteps= Nz / dn  = 1,2,3 for Nz = 2 o 3, 4 o 5, 6 o 7
+            kk=0 a Nsteps-1 = 0,1,2,...
+            ii= 1+dnfac*kk = ee= 1,3,5...  (F90) =   kk*dnfac  = ee-1 = 0,2,4 ,... (Python) with eeini=1 the first time
+            ee= ii + dn = 3,5,7,...    =     ii + dn +1 = 3,5,7,... (Python)
+            Avoid changing rule using only odd num of points Nz=3,5,7,...
+
+            Then in Python (with dn and nsteps common for pyhton and fortran): 
+            mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2]} #eeini,dn, nsteps
+            eeini,dn,nsteps=mdic[str(method)]  such that:
+            >>  ee=eeini (F90)          ee=eeini (python)
+            >>  ii=ee+1 -eeini  (F90)      ii=ee-eeini (pyhton)
+            >>  ee=ii+dn  (F90)         ee=ii+dn+1  (pyhton)
+        '''
+        #mdic={'0':[1,1,nz,0],'1':[2,1,nz-1,-1],'5':[1,1,nz,0],'6':[3,2,nz//2,-1]}  #np,dnfac,nsteps,iepy
+        #np,dnfac,nsteps,iepy=mdic[str(method)]       
+        #nsteps,remain=np.divmod(self.n_chromospheres,dn) #remain: mod of division
+        mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2],'7':[1,2,nz//2]} #--->>>>>  eeini,dn, nsteps
+        eeini,dn,nsteps=mdic[str(method)]       
+        return eeini,eeini,dn,nsteps #dn and nsteps only used in direct_synthesis, not affecting older routine 
 
 
     def get_i0(self,sp):
         '''  Get normalization value
-        lam0=sp.multiplets[sp.lineHazel] = sp.multiplets[aself.active_line]
+        lam0=sp.multiplets[sp.line] = sp.multiplets[aself.active_line]
         here we could choose between these options to set a normalization continuum intensity
         right now is set at muAllen as defined by user when calling synthesize but we should set it to 
         the same reference used above with the mu of the observation aself.spectrum.mu 
@@ -1936,8 +1978,8 @@ class ModelRT(object):
         CHOICE 2, at mean wavelength: i0=i0_allen(np.mean(sp.wavelength_axis[xb:xt]), self.muAllen)  
         CHOICE 3,at each wavelength: i0=i0_allen(sp.wavelength_axis[xb:xt], self.muAllen)[None,:]
         '''
-        if (self.muAllen != 1.0):return i0_allen(sp.multiplets[sp.lineHazel], self.muAllen)  
-        else:return i0_allen(sp.multiplets[sp.lineHazel], sp.mu) #hsra_continuum(lam0)
+        if (self.muAllen != 1.0):return i0_allen(sp.multiplets[sp.line], self.muAllen)  
+        else:return i0_allen(sp.multiplets[sp.line], sp.mu) #hsra_continuum(lam0)
 
     def synthesize_ray(self, sp, method,stokes=None,i0=None,stokes_out = None,fractional=False,xb=0,xt=-1):
         """
@@ -1951,42 +1993,94 @@ class ModelRT(object):
         xb, xt = sp.wvl_range #xt-xb=sp.nwvl --> it is nlambdaIn
         if i0 is None:i0=self.get_i0(sp) #returns a single float normalization value
 
-        #-------------------------Get boundary right--------------------------------------
+        #-------------------------Get bottom boundary right and ds LOS--------------------------------------
         if stokes_out is None:#when no input boundary in synthesize() 
             stokes_out = np.ones((4,xt-xb)) #xt-xb=sp.nwvl
             stokes_out[0,:] = i0 #Multiply I by i0 boundary Stokes introduced by user gives physical units
             stokes_out *= sp.boundary[:,xb:xt]
         else:stokes_out=stokes_out[:,xb:xt]
-        #------------------Now,focus only in RT along ray ------------------------------
+
+        ds=self.get_dsLOS(sp,self.n_chromospheres)
+        #------------------Now,focus only in RT along ray ------------------------------        
         start = timer()
-        dn,nsteps,kind=self.cutting_pars(method)
-        for n in range(nsteps): #run on cell blocks along ray
-            ii=n*dn;    ee=ii+dn #(n+1)*dn
-            if n==nsteps:ee=ii+kind #print(n,dn,kind,ii,ee)  ;sys.exit()
+        ee,eeini,dn,nsteps=self.cutting_pars(self.n_chromospheres,method)#method=0 (or 5)always to have dn=1: fortran routine ONLY has dn=1 EvolOp method 
+        #UNCOMMENT THIS TO WORK WITH OLD TESTED RT_SYNTHESIS ROUTINE WITH ONLY EvolOp METHOD
+        '''for nn in range(nsteps): #run on cell blocks along ray
+            ii=ee-eeini 
+            ee=ii+dn+1
+            print(ii,ee,method,ii+1,ee-ii)
+            stokes_out,error = self.synth_piece(sp,nn,ii,ee,method,xt-xb,stokes_in=stokes_out)
+        '''
+        #stokes_out[0,90]=12.0 ;sp.rteps[0,0,90]=101 ;print(stokes_out[0,90],sp.rteps[0,0,90])
+        #transpose, read full arrays in column major order,no structures in fortran (pass by reference), retranspose here
+        #aft(stokes_in) makes efficient index (i.e. wavelengths) to be leftmost (Column major Fortran-like)
+        #print(sp.rteps.flags['F_CONTIGUOUS'],sp.rteps.strides,sp.rteps.__array_interface__)
+        #-------------------------Multiply by beta factor-------------------------------
+        sp.rteps[:,:,:]=self.pars2D[6,np.newaxis,:,np.newaxis]*sp.rteps[:,:,:] #beta * eps   (kw,kz,kstokes)
+        #OLD
+        #stokes_out, error=hazel_code._direct_synthesis(xt-xb,self.n_chromospheres,nsteps,dn,method,ds,
+        #    aft(sp.rteps.T),aft(sp.rteta.T),aft(sp.rtrho.T),aft(stokes_out.T)) 
+        #NEW
+        stokes_out, error=hazel_code._direct_synthesis(xt-xb,self.n_chromospheres,nsteps,dn,method,ds,
+            aft(sp.rteps),aft(sp.rteta),aft(sp.rtrho),aft(stokes_out.T)) 
+        stokes_out=stokes_out.T 
         
-            stokes_out,error = self.synth_piece(sp,ii,ee,method,xt-xb,stokes_in=stokes_out)
-            #stokes_out,error=hazel_code._rt_synthesis(ii+1,ee-ii, method, self.hz[ii:ee], self.pars2D[3,ii:ee], 
-            #    self.pars2D[6,ii:ee], aft(stokes_out), xt-xb, aft(sp.rteps[ii:ee,:,:]), aft(sp.rteta[ii:ee,:,:]), 
-            #    aft(sp.rtrho[ii:ee,:,:]))
         print("Ray calculated in {0:{pp}} s.\n".format(timer()-start,pp='11.6f'))
-
-        if fractional:i0=stokes_out[0,:] #when fractional, P(lambda)/I(lambda) will be stored in spectrum object
-        sp.stokes[:,xb:xt] = stokes_out/ i0
+        
+        if fractional:i0=stokes_out[0,:] #when fractional, P(lambda)/I(lambda) is stored in spectrum object
+        sp.stokes[:,xb:xt] = stokes_out / i0
         #--------------------------------------------------------------------------------
-
-
-    def synth_piece(self,sp,ii,ee,method,nLambdaIn,stokes_in=None):
+    
+    def synth_piece(self,sp,nn,ii,ee,method,nLambdaIn,stokes_in=None):
         hIn = self.hz[ii:ee]#aself.height#self.hz[ini:end]  #aself.height --> was single height for a given atmosphere cell 
         tauIn = self.pars2D[3,ii:ee] #aself.parameters['tau']
         betaIn = self.pars2D[6,ii:ee]
-        #print(sp.rteps.flags['F_CONTIGUOUS'],sp.rteps.strides,sp.rteps.__array_interface__)
-
-        stokes_out,error=hazel_code._rt_synthesis(ii+1,ee-ii, method, hIn, tauIn, betaIn, aft(stokes_in), 
-            nLambdaIn, aft(sp.rteps[ii:ee,:,:]), aft(sp.rteta[ii:ee,:,:]), aft(sp.rtrho[ii:ee,:,:]))
+        
+        #this fortran routine ONLY has dn=1 EvolOp method
+        aueps=np.transpose(sp.rteps[:,ii:ee,:], (1, 2, 0))    #(kw,kz,ksto)-->(kz,ksto,kw)
+        aueta=np.transpose(sp.rteta[:,ii:ee,:], (1, 2, 0))   #(kw,kz,ksto)-->(kz,ksto,kw)
+        aurho=np.transpose(sp.rtrho[:,ii:ee,:], (1, 2, 0))   #(kw,kz,ksto)-->(kz,ksto,kw)
+        stokes_out,error=hazel_code._rt_synthesis(nn+1,ee-ii, method, hIn, tauIn, betaIn, aft(stokes_in), 
+            nLambdaIn, aft(aueps), aft(aueta), aft(aurho))
+        #stokes_out,error=hazel_code._rt_synthesis(ii+1,ee-ii, method, hIn, tauIn, betaIn, aft(stokes_in), 
+        #    nLambdaIn, aft(sp.rteps[ii:ee,:,:]), aft(sp.rteta[ii:ee,:,:]), aft(sp.rtrho[ii:ee,:,:]))
 
         if (error == 1):raise NumericalErrorHazel()
         
         return stokes_out, error
+    
+
+    def get_dsLOS(self,sp,nz):
+        '''Calculate true ds from tau or from hz including the effect of LOS mu :  ds_LOS=ds/mu 
+        EDGAR: the result of the RT strongly depends on how tau is interpreted.
+        IF interpreted as the optical depth tau at which the layer is, this means that for  
+        given input limits in the variable tau, the more points in height the larger the opacity
+        of the model, so that to echieve an asymtptotic result as the number of points increase
+        we need to divide the tau variable by the number of points in order for every layer to 
+        receive a proportional amount of opacity. This would also require to define 1 additional point
+        for the opacity(at bottom or top) to obtain Dtau (not the tau) associated to that layer.
+        INTERPRETING TAU AS TAU: define it as associated a midpoint etaI at its maximum. 
+        Thus we obtain a physical height and tau consistent with our absoorption coeff.
+        ds(kz) = abs(tau(kz+1)-tau(kz))/maxval(0.5*(eta(kz,1,:)+eta(kz+1,1,:)))
+        
+        We avoid complexities by interpreting the input tau variable as proxy to Dtau itself for the layers.
+        To obtain the true dtau we obtain first the associated z scale and then with etaI the wavelength-dependent dtau
+        INTERPRETING TAU AS DTAU: dtau centered at every point. 
+        When RT requires dn>1 points per step (needs only dtaus,ds between points)
+        we interpret it as dtau between points(then 1 point in dtau is left at the end of the ray).
+        When dn=1, it requires nz points for (ds,dtau) and we add auxialiar TOP point in hz and tau 
+        with very small length. If dn>1 the quadrature is posed to require dn-1 points per every step of
+        dn data points, and then the aux TOP point is not necessary.'''  
+                
+        if (self.choice==0):ds=self.pars2D[3,:]/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
+        else:ds=np.diff(self.hz,append=1.01*self.hz[-1])/sp.mu #ds(kz) = hz(kz+1)-hz(kz) !hz given by user
+        self.actual_hz=ds.cumsum()
+        self.actual_dtau=np.max(sp.rteta[:,:,0],axis=0)*ds[:] 
+        '''The following dtau is also obtained in Fortran from ds if the method require dtau and not ds'''        
+        #dtau=np.zeros((self.nwvl,nz)),order='F' )   #dtau(:,kz)=sp.rteta[:,kz,1]*ds(kz)
+        
+        return ds
+
 
     def see_and_synth_with_comments(self,ini,end,method,stokes=None):
         """

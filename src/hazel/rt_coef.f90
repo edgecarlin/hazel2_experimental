@@ -8,31 +8,32 @@ contains
 ! Calculate the radiative transfer coefficients
 !------------------------------------------------------------
 
-	subroutine alloc_rt_coef(in_fixed)
-	type(fixed_parameters) :: in_fixed
+	subroutine alloc_outer_coefs(nl,fin)
+	integer :: nl !nl is also in_fixed%no but I prefer to specify
+	type(fixed_parameters) :: fin !fin was in_fixed but the localname is irrelevant
 
-	    if (.not.associated(in_fixed%epsilon)) allocate(in_fixed%epsilon(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%epsilon_zeeman)) allocate(in_fixed%epsilon_zeeman(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%eta)) allocate(in_fixed%eta(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%eta_zeeman)) allocate(in_fixed%eta_zeeman(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%eta_stim)) allocate(in_fixed%eta_stim(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%eta_stim_zeeman)) allocate(in_fixed%eta_stim_zeeman(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%mag_opt)) allocate(in_fixed%mag_opt(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%mag_opt_zeeman)) allocate(in_fixed%mag_opt_zeeman(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%mag_opt_stim)) allocate(in_fixed%mag_opt_stim(0:3,in_fixed%no))
-	    if (.not.associated(in_fixed%mag_opt_stim_zeeman)) allocate(in_fixed%mag_opt_stim_zeeman(0:3,in_fixed%no))
-	    in_fixed%epsilon = 0.d0
-	    in_fixed%epsilon_zeeman = 0.d0
-	    in_fixed%eta = 0.d0
-	    in_fixed%eta_zeeman = 0.d0
-	    in_fixed%eta_stim = 0.d0
-	    in_fixed%eta_stim_zeeman = 0.d0
-	    in_fixed%mag_opt = 0.d0
-	    in_fixed%mag_opt_stim = 0.d0
-	    in_fixed%mag_opt_zeeman = 0.d0
-	    in_fixed%mag_opt_stim_zeeman = 0.d0
+	    if (.not.associated(fin%epsilon)) allocate(fin%epsilon(0:3,nl))
+	    if (.not.associated(fin%epsilon_zeeman)) allocate(fin%epsilon_zeeman(0:3,nl))
+	    if (.not.associated(fin%eta)) allocate(fin%eta(0:3,nl))
+	    if (.not.associated(fin%eta_zeeman)) allocate(fin%eta_zeeman(0:3,nl))
+	    if (.not.associated(fin%eta_stim)) allocate(fin%eta_stim(0:3,nl))
+	    if (.not.associated(fin%eta_stim_zeeman)) allocate(fin%eta_stim_zeeman(0:3,nl))
+	    if (.not.associated(fin%mag_opt)) allocate(fin%mag_opt(0:3,nl))
+	    if (.not.associated(fin%mag_opt_zeeman)) allocate(fin%mag_opt_zeeman(0:3,nl))
+	    if (.not.associated(fin%mag_opt_stim)) allocate(fin%mag_opt_stim(0:3,nl))
+	    if (.not.associated(fin%mag_opt_stim_zeeman)) allocate(fin%mag_opt_stim_zeeman(0:3,nl))
+	    fin%epsilon = 0.d0
+	    fin%epsilon_zeeman = 0.d0
+	    fin%eta = 0.d0
+	    fin%eta_zeeman = 0.d0
+	    fin%eta_stim = 0.d0
+	    fin%eta_stim_zeeman = 0.d0
+	    fin%mag_opt = 0.d0
+	    fin%mag_opt_stim = 0.d0
+	    fin%mag_opt_zeeman = 0.d0
+	    fin%mag_opt_stim_zeeman = 0.d0
 
-	end subroutine alloc_rt_coef
+	end subroutine alloc_outer_coefs
 
 	subroutine calc_rt_coef(in_params,in_fixed,in_observation)
 	type(variable_parameters) :: in_params

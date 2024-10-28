@@ -11,7 +11,7 @@ __all__ = ['Spectrum']
 class Spectrum(object):
     def __init__(self, wvl=None, weights=None, observed_file=None, name=None, stokes_weights=None, 
         los=None, boundary=None, mask_file=None, instrumental_profile=None, save_all_cycles=False, 
-        root='', wvl_lr=None,lti=None,lineHazel='',lineSIR='', n_chromo=None,synmethod=None,
+        root='', wvl_lr=None,lti=None,line='',lineSIR='', n_chromo=None,synmethod=None,
         synthesis_from_model=True):
         
         self.wavelength_axis = None
@@ -45,8 +45,8 @@ class Spectrum(object):
         if (lti is not None):
             self.line_to_index=lti  #line_to_index dictionary for Hazel
 
-        if (lineHazel != ''):
-            self.lineHazel=lineHazel #line/s for activating in Hazel chromo or in SIR photo
+        if (line != ''):
+            self.line=line #line/s for activating in Hazel chromo or in SIR photo
 
         if (lineSIR != ''):
             self.lineSIR=lineSIR #line/s for activating in Hazel chromo or in SIR photo
@@ -141,20 +141,21 @@ class Spectrum(object):
         self.wvl_range = [ind_low, ind_top+1] #or simply [0,-1]
 
         self.wavelength_axis_lr = wvl_lr
-        self.stokes = np.zeros((4,self.nwvl))
+        #efficient C/Python row-major ordering implies wavelengths on the rightmost 
+        self.stokes = np.zeros((4,self.nwvl)) 
         self.stokes_perturbed = np.zeros((4,self.nwvl))
             
         #Optical coeffs python containers
         if self.synthesis_from_model:  #here,the synthesis and calculation of coeffs is done from modelRT in modelSynth.py 
             #finally the newer containers for the full RT opt coeffs used when working with 
             #the new extended atmopsheres and efficient radiative transfer routines
-            self.rteps = np.zeros((nch,4,self.nwvl)) 
-            self.rteta = np.zeros((nch,4,self.nwvl)) 
-            self.rtrho = np.zeros((nch,3,self.nwvl)) 
-            #self.rteps = np.asfortranarray(np.zeros((nch,4,self.nwvl)) )
-            #self.rteta = np.asfortranarray(np.zeros((nch,4,self.nwvl)) )
-            #self.rtrho = np.asfortranarray(np.zeros((nch,3,self.nwvl)) )
-        else:#here the synthesis and calculation of coeffs is done from model in model.py 
+            self.rteps = np.zeros((self.nwvl,nch,4)) #stored in mem as F90 arrays
+            self.rteta = np.zeros((self.nwvl,nch,4)) 
+            self.rtrho = np.zeros((self.nwvl,nch,3)) 
+            #self.rteps = np.zeros((nch,4,self.nwvl)) #OLD
+            #self.rteta = np.zeros((nch,4,self.nwvl)) #OLD
+            #self.rtrho = np.zeros((nch,3,self.nwvl)) #OLD
+        else:#here the synthesis and calculation of coeffs is done from model in model.py (not modelRT)
             #nch considers all atmospheres, also those inside same pixel with filling factor
             #so N slabs with 2 subpixels are 2N atmospheres.
             #these are the old version coeffs, having 7 positions for storing absorption and 
