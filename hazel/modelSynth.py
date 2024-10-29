@@ -395,7 +395,7 @@ class ModelRT(object):
         return 
 
 
-    def plot_stokes(self,sp,scale=3,tf=2,fractional=False,lab=None): 
+    def plot_stokes(self,sp,scale=3,tf=2,fractional=False,lab=None,line='-'): 
         '''
         Routine called by synthesize to plot stokes profiles either fractional 
         or normalized to continuum 
@@ -421,8 +421,8 @@ class ModelRT(object):
             if i ==0:
                 self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:])
             else:
-                if fractional:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:]/sp.stokes[0,:])
-                else:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:])
+                if fractional:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:]/sp.stokes[0,:],line)
+                else:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:],line)
             
             self.ax1[i].set_title(mylab(lab[i]))#,size=8 + 0.7*pscale)
             if i>1:self.ax1[i].set_xlabel(mylab('xx'))#,size=8 +0.7*pscale)#,labelpad=lp)
@@ -1831,7 +1831,7 @@ class ModelRT(object):
 
 
     def synthesize(self, FtS='', FtR='',method=None,muAllen=1.0,frac=None,fractional=False,
-        saveto='',fromfile='',obj=None,plot=None,ax=None):
+        saveto='',fromfile='',obj=None,plot=None,ax=None,line='-'):
         #i0=None,boundary=None,obj=None,plot=None,ax=None):
         """
         Synthesize atmospheres
@@ -1881,7 +1881,7 @@ class ModelRT(object):
                     v.stokes_lr[i,:] = np.interp(v.wavelength_axis_lr, v.wavelength_axis, v.stokes[i,:])                    
 
             if (plot is not None):#plot called inside loops
-                if (k == plot):self.plot_stokes(plot,fractional=fractional)
+                if (k == plot):self.plot_stokes(plot,fractional=fractional,line=line)
             else:#plot is None because synthesize routine was called without intention of plotting or from mutation
                 if obj is None:TBD=1                
                 
@@ -1952,6 +1952,9 @@ class ModelRT(object):
             ee= ii + dn = 3,5,7,...    =     ii + dn +1 = 3,5,7,... (Python)
             Avoid changing rule using only odd num of points Nz=3,5,7,...
 
+        >>> Method 7: as 6, but with dn=0, np=1 for calling Magnus point by point
+
+        .......................................................................
             Then in Python (with dn and nsteps common for pyhton and fortran): 
             mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2]} #eeini,dn, nsteps
             eeini,dn,nsteps=mdic[str(method)]  such that:
@@ -1962,7 +1965,7 @@ class ModelRT(object):
         #mdic={'0':[1,1,nz,0],'1':[2,1,nz-1,-1],'5':[1,1,nz,0],'6':[3,2,nz//2,-1]}  #np,dnfac,nsteps,iepy
         #np,dnfac,nsteps,iepy=mdic[str(method)]       
         #nsteps,remain=np.divmod(self.n_chromospheres,dn) #remain: mod of division
-        mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2],'7':[1,2,nz//2]} #--->>>>>  eeini,dn, nsteps
+        mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2],'7':[0,0,nz]} #--->>>>>  eeini,dn, nsteps
         eeini,dn,nsteps=mdic[str(method)]       
         return eeini,eeini,dn,nsteps #dn and nsteps only used in direct_synthesis, not affecting older routine 
 

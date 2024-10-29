@@ -11,6 +11,450 @@ implicit none
 
 contains
 
+!subroutine Magnus_FormSol_1(stoks,nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
+ subroutine Magnus_FormSol_1(nl,np,ds,epsZ,etaZ,roZ,stoks)
+    integer, intent(in) :: nl,np
+    real(kind=8),intent(in) :: ds(:),etaZ(:,:,:),roZ(:,:,:),epsZ(:,:,:)!, eps(:,:,:),eta(:,:,:),rho(:,:,:)
+    !real(kind=8),dimension(:,:),intent(in) :: epI,epQ,epU,epV!,etI,etQ,etU,etV,roQ,roU,roV !kw,kz
+    real(kind=8),intent(inout) :: stoks(:,:)
+
+    real(kind=8),dimension(nl,4,4) :: omhat,omtil, evolop  !,intent(out)
+    real(kind=8) :: tau(nl),alfa(nl,3),beta(nl,3),emis(nl,4)!coef(0:10,nl)
+    real(kind=8),dimension(4,4,nl) :: fomhat,fomhat2,fomtil,fevolop,phi1
+    real(kind=8),dimension(nl) :: qq,rr,hh,hh_2,bhat_2,bhat,btil_2,btil,dhat,dtil,dhdt
+    real(kind=8),dimension(nl) :: f1h,fah,fbh,f2h, Chat, Ctil, Shat, Stil,exptau,tau_2,comfac
+    real(kind=8) ::pkpipp(np) !pk,pi
+    !real(kind=8) ::aux(nl),ci,cip,delk, pkpipp(3),pp  !pk,pi
+    integer::kz,kw,ii,jj,kk
+
+    real(kind=8),dimension(nl) :: Feps, OFeps, Fptil,OFptil,Fphat,OFphat,aux1,aux2,qqsign
+
+
+    !INIT QUADRATURE WEIGHTS: Scheme:      k(O)*---ds(k)---*i(M)*---ds(k+1)---*k+1(P)
+    pkpipp= quadrature_weights(np,ds)!ds is already a small chunk
+
+    !PROGRAM ADAPTATIVE RECURSIVE QUADRATURE AND COMPOSED QUADRATURE RULE
+    !add also routine to select the cuadrature coeffs for 1,2, ans 3 points (still with parab interpolants)
+
+    !Integration of optical coefficients alog the ray
+            tau(:)=MATMUL(etaZ(:,:,1),pkpipp)
+            do kk=1,3  !go from (nw,nz,nquv) to (nw,nquv)
+            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp) 
+            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)
+            emis(:,kk) = MATMUL(epsZ(:,:,kk),pkpipp)
+            enddo
+            emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
+
+
+        !IT SEEMS BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
+        !TO AVOID TRANPOSING THE TWO OM MATRICES BELOW WHICH HAVE 16 ELEMENTS EACH
+        !OR JUST FILL LORENTZ ALONG WAVELENGTH, NOT ALONG STOKES!
+
+            ! !$OMP PARALLEL DO --> try this
+            ! do kk =1,nl!go from (nw,nquv) to (nquv,nw)
+            !         do ii=1,3
+            !             alfa(ii,kk)=Nalfa(kk,ii)
+            !             beta(ii,kk)=Nbeta(kk,ii)
+            !             emis(ii,kk)=Nemis(kk,ii)
+            !         enddo
+            !         emis(4,kk)=Nemis(kk,4)
+            ! enddo  
+            ! ! !$OMP END PARALLEL DO
+
+           !composition of Omega hat (Lorentz hat) and Omega tilde (Lorentz tilde) for one frequency:
+        ! do kw=1,nl
+        !     call  fill_Lorentz_matrix(Omhat(:,:,kw),alfa(:,kw),beta(:,kw)) !return 4x4 Omega hat
+        !     call  fill_Lorentz_matrix(Omtilde(:,:,kw),beta(:,kw),-alfa(:,kw)) !return 4x4 Ometa tilde
+        !     qq(kw) = dot_product(2.d0*alfa(:,kw),beta(:,kw))
+        !     rr(kw) = dot_product(alfa(:,kw),alfa(:,kw)) -dot_product(beta(:,kw),beta(:,kw))
+        !     !do rest of calcualtions here frequcny by frequency
+        ! end do
+    !.....................................................................
+    !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
+
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
+            do ii=1,3 !Efficient calculation without matrix inversions
+                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
+                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
+            enddo    !Results are (kw, 4column,4row)
+            !Most efficient way I have found to exchange dimensions for speeding up last step
+            !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
+            !$OMP PARALLEL DO --> try this
+            do kk =1,nl
+                do jj=1,4
+                    do ii=1,4
+                        fomhat(ii,jj,kk)=Omhat(kk,ii,jj)
+                        fomtil(ii,jj,kk)=Omtil(kk,ii,jj)
+                    enddo
+                enddo
+                fomhat2(1:4,1:4,kk)=MATMUL(fomhat(1:4,1:4,kk),fomhat(1:4,1:4,kk))
+            enddo  !Results are (4column,4row,kw)
+            ! !$OMP END PARALLEL DO
+
+            !.................ADD SIGNS EDGAR Here and in trigo functions!....................................................
+            !signs issue: signs could be defined seeing if bhat_2<0 and/or if btil2 <0.
+            !in such cases we only take the positive value
+            qq = 2.0*dot_productF2(alfa,beta) !--> THIS HAS THE KEY SIGN OF f1b
+            qqsign = get_signsF1(qq)
+            !call dot_product_signF2(2.0*alfa,beta,qq,qqsign) !--> THIS HAS THE KEY SIGN OF f1b
+            
+            rr = dot_productF2(alfa,alfa) - dot_productF2(beta,beta)            
+            hh_2 = rr*rr + qq*qq   ;  hh= DSQRT(hh_2) !bhat_2+btil2
+            bhat_2= (hh+rr)/2.d0   ;  bhat= DSQRT(bhat_2) ! bhat and btil are modules:
+            btil_2= (hh-rr)/2.d0   ;  btil= DSQRT(btil_2) !their signs only matter in f1b and are accounted by qqsign
+
+
+            Chat=DCOSH(bhat) ; Ctil=DCOS(btil) ; Shat=DSINH(bhat) ; Stil=DSIN(btil)
+
+            exptau=DEXP(-tau)
+            comfac=exptau/hh
+
+            !Special functions * hh: 
+            f1h = comfac*(btil_2 * Chat +bhat_2*Ctil )!f0h !division by hh is made more efficiently in evolop
+            fah= - comfac*(bhat*Shat + btil*Stil)  !fah= - (bhat*Shat + btil*Stil) !f1ah
+            fbh= qqsign*comfac*(bhat*Stil - btil*Shat) !f1bh
+            f2h = comfac*(Chat - Ctil ) !f2
+
+
+            do kk =1,nl
+                fevolop(1:4,1:4,kk) = f1h(kk)*identt4(1:4,1:4) + &
+                    fah(kk)*fomhat(1:4,1:4,kk) + fbh(kk) * fomtil(1:4,1:4,kk) + &
+                    f2h(kk)*fomhat2(1:4,1:4,kk)  
+            enddo
+    !..................................................................... 
+    
+    !Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
+    Fphat=bhat/tau   ; OFphat= (1.d0 - Fphat*Fphat)*hh
+    Fptil=btil/tau   ; OFptil= (1.d0 + Fptil*Fptil)*hh
+    
+   !................................................................... 
+    !CALCULATE FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
+            
+    !CALCULATE PHI_1 FUNCTION REUSING MATRICES AND SOME VARIABLES 
+            
+    aux1=(exptau*(Ctil+Fptil*Stil)-1.d0)/OFptil
+    aux2=(exptau*(Chat+Fphat*Shat)-1.d0)/OFphat
+
+            f1h= bhat*Fphat*aux1 - btil*Fptil*aux2
+            f2h= -(aux1 + aux2)/tau
+    
+    aux1=(exptau*(Shat+Fphat*Chat)-Fphat)/OFphat
+    aux2=(exptau*(Stil+Fptil*Ctil)-Fptil)/OFptil
+    
+            fah= Fphat*aux1 + Fptil*aux2  !for Lhat
+            fbh= qqsign * (Fptil*aux1 - Fphat*aux2)   !for Ltil  -->defines signs
+
+    !.....................................................................
+    do kk =1,nl
+        phi1(1:4,1:4,kk) = f1h(kk)*identt4(1:4,1:4) +&
+         fah(kk)*fomhat(1:4,1:4,kk) + & 
+        fbh(kk) * fomtil(1:4,1:4,kk) + &
+        f2h(kk)*fomhat2(1:4,1:4,kk)  
+
+        !try transposing stokes before multiplying and retransposing again or redefine stokes
+        stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+    enddo
+        
+
+! subroutine matmul312(amat, bvec, cmat)
+!   real(dp), contiguous, intent(in), target :: amat(:, :, :)
+!   real(dp), intent(in) :: bvec(:)
+!   real(dp), contiguous, intent(out), target :: cmat(:, :)
+!   real(dp), pointer :: aptr(:, :)
+!   real(dp), pointer :: cptr(:)
+
+!   aptr(1:size(amat, 1)*size(amat, 2), 1:size(amat, 3)) => amat
+!   cptr(1:size(cmat)) => cmat
+
+!   cptr = matmul(aptr, bvec)
+! end subroutine matmul312
+
+
+    !.....................................................................
+!enddo
+
+ end subroutine Magnus_FormSol_1
+! ------------------------------------------------------------------------ -
+! EDGAR: CALCULATE quadrature rules and integrate all optical coefficients 
+!        by blocks along the ray.
+! -------------------------------------------------------------------------
+ subroutine Magnus_FormSol_2(dn,stoks,nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
+    integer, intent(in) :: nl,dn
+    real(kind=8),intent(in) :: ds(:)!,etaZ(:,:,:),roZ(:,:,:),epsZ(:,:,:)!, eps(:,:,:),eta(:,:,:),rho(:,:,:)
+    real(kind=8),dimension(:,:),intent(in) :: epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV !kw,kz
+    real(kind=8),intent(inout) :: stoks(:,:)
+
+    real(kind=8),dimension(nl,4,4) :: omhat,omtil, evolop  !,intent(out)
+    real(kind=8) :: tau(nl),alfa(nl,3),beta(nl,3),emis(nl,4)!coef(0:10,nl)
+    real(kind=8),dimension(4,4,nl) :: fomhat,fomhat2,fomtil,fevolop,phi1
+    real(kind=8),dimension(nl) :: qq,rr,hh,hh_2,bhat_2,bhat,btil_2,btil,dhat,dtil,dhdt
+    real(kind=8),dimension(nl) :: f1h,fah,fbh,f2h, Chat, Ctil, Shat, Stil,EHfac,tau_2
+    real(kind=8) ::aux(nl),ci,cip,delk, pkpipp(3),pp  !pk,pi
+    integer::kz,kw,ii,jj,kk,kzmin,kzmax
+
+    real(kind=8),dimension(nl) :: Feps, OFeps, Fptil,OFptil,Fphat,OFphat,aux1,aux2
+
+    !QUadrature scheme:      k(O)*---ds(k)---*i(M)*---ds(k+1)---*k+1(P)
+    kzmin=1 ;kzmax=dn
+
+    !CALCULATE MAGNUS EXPANSION UNTIL ORDER 1................
+    !call Magnus_O1(.....) and call Magnus_O2(.....)
+    !PROGRAM ADAPTATIVE RECURSIVE QUADRATURE AND COMPOSED QUADRATURE RULE
+    !vector of quadrature coefficients for points 
+            delk=ds(kzmin)+ds(kzmin+1)
+            ci=ds(kzmin)/delk
+            cip = 1.d0 - ci ! cip = ds(kzmin+1)/delk = 1.0 - ci
+            pp= 1.d0 / ci
+            !pi = pp / cip !=1.0/(ci*cip)
+            !pk = 3.0 - 1.0 / cip
+            pkpipp(1:3)= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
+    !if reduced to 1 point in height per cell forcing K=cte this method should reduced to method 5
+    !standard evolop method
+
+
+    !Integration of optical coefficients alog the ray
+            tau(:)=MATMUL(etI(:,kzmin:kzmax),pkpipp)
+
+             alfa(:,1) = MATMUL(etQ(:,kzmin:kzmax),pkpipp)
+             alfa(:,2) = MATMUL(etU(:,kzmin:kzmax),pkpipp)
+             alfa(:,3) = MATMUL(etV(:,kzmin:kzmax),pkpipp)
+             beta(:,1) = MATMUL(roQ(:,kzmin:kzmax),pkpipp)
+             beta(:,2) = MATMUL(roU(:,kzmin:kzmax),pkpipp)
+             beta(:,3) = MATMUL(roV(:,kzmin:kzmax),pkpipp)
+             emis(:,1) = MATMUL(epI(:,kzmin:kzmax),pkpipp)
+             emis(:,2) = MATMUL(epQ(:,kzmin:kzmax),pkpipp)
+             emis(:,3) = MATMUL(epU(:,kzmin:kzmax),pkpipp)
+             emis(:,4) = MATMUL(epV(:,kzmin:kzmax),pkpipp)    
+    !.....................................................................
+    !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
+
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
+            do ii=1,3 !Efficient calculation without matrix inversions
+                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
+                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
+            enddo    !Results are (kw, 4column,4row)
+            !Most efficient way I have found to exchange dimensions for speeding up last step
+            !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
+            !$OMP PARALLEL DO --> try this
+            do kk =1,nl
+                do jj=1,4
+                    do ii=1,4
+                        fomhat(ii,jj,kk)=Omhat(kk,ii,jj)
+                        fomtil(ii,jj,kk)=Omtil(kk,ii,jj)
+                    enddo
+                enddo
+                fomhat2(1:4,1:4,kk)=MATMUL(fomhat(1:4,1:4,kk),fomhat(1:4,1:4,kk))
+            enddo  !Results are (4column,4row,kw)
+            ! !$OMP END PARALLEL DO
+
+            !.................ADD SIGNS EDGAR Here and in trigo functions!....................................................
+            qq = 2.0*dot_productF2(alfa,beta)
+            rr = dot_productF2(alfa,alfa) - dot_productF2(beta,beta)            
+            hh_2 = rr*rr + qq*qq   ;  hh= DSQRT(hh_2) !bhat_2+btil2
+            bhat_2= (hh+rr)/2.d0   ;  bhat= DSQRT(bhat_2) !  LACKS THE SIGNS
+            btil_2= (hh-rr)/2.d0   ;  btil= DSQRT(btil_2)
+
+            Chat=DCOSH(2.0*bhat) ; Ctil=DCOS(2.0*btil) ; Shat=DSINH(2.0*bhat) ; Stil=DSIN(2.0*btil)
+
+            !Special functions * hh: 
+            f1h = (btil_2 * Chat +bhat_2*Ctil )!f0h !division by hh is made more efficiently in evolop
+            fah= - (bhat*Shat + btil*Stil) !f1ah
+            fbh= (bhat*Stil - btil*Shat) !f1bh
+            f2h = (Chat - Ctil ) !f2
+
+            EHfac(:)=DEXP(-tau(:)) / hh(:)
+
+            do kk =1,nl
+                fevolop(1:4,1:4,kk) = EHfac(kk) *( f1h(kk)*identt4(1:4,1:4) + &
+                    fah(kk)*fomhat(1:4,1:4,kk) + fbh(kk) * fomtil(1:4,1:4,kk) + &
+                    f2h(kk)*fomhat2(1:4,1:4,kk) ) 
+            enddo
+    !..................................................................... 
+    
+    Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
+    Fphat=2.d0*bhat/tau   ; OFphat= 1.d0 - Fphat*Fphat
+    Fptil=2.d0*btil/tau   ; OFptil= 1.d0 + Fptil*Fptil
+   !................................................................... 
+    !CALCULATE FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
+            !tau_2=tau*tau
+            !dhat=tau_2 - 4.0*bhat_2    ;dtil=tau_2 + 4.0*bhat_2   ;dhdt= dhat*dtil
+            !Chat=Chat/(tau*dhat) ; Ctil=Ctil/(tau*dtil) ; Shat=Shat/(2*bhat*dhat) ; Stil=Stil/(2*btil*dtil)
+            !.....................................................................
+            !CALCULATE PHI_1 FUNCTION REUSING MATRICES AND SOME VARIABLES 
+            !(qq=2*bhat*btil)
+    aux1=(DEXP(-tau)*(Ctil+Fptil*Stil)-1.d0)/OFptil
+    aux2=(DEXP(-tau)*(Chat+Fphat*Shat)-1.d0)/OFphat
+
+            f1h=(Feps*aux1 - OFeps*aux2)/tau
+            f2h=-(aux1 + aux2)/(hh*tau)
+    
+    aux1=(DEXP(-tau)*(Shat+Fphat*Chat)-Fphat)/OFphat
+    aux2=(DEXP(-tau)*(Stil+Fptil*Ctil)-Fptil)/OFptil
+    
+            fah=(bhat*aux1 + btil*aux2)/(hh*tau)  !for Lhat
+            fbh=(btil*aux1 - bhat*aux2)/(hh*tau)        !for Ltil
+
+            !.....................................................................
+            do kk =1,nl
+                phi1(1:4,1:4,kk) = f1h(kk)*identt4(1:4,1:4) +&
+                 fah(kk)*fomhat(1:4,1:4,kk) + & 
+                fbh(kk) * fomtil(1:4,1:4,kk) + &
+                f2h(kk)*fomhat2(1:4,1:4,kk)
+
+                !try transposing stokes before multiplying and retransposing again or redefine stokes
+                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+            enddo
+        
+        !print*,tau
+
+        !SOLVE STOKES 
+        !do kk =1,nl
+        !stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4)) +matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+        !enddo
+
+! subroutine matmul312(amat, bvec, cmat)
+!   real(dp), contiguous, intent(in), target :: amat(:, :, :)
+!   real(dp), intent(in) :: bvec(:)
+!   real(dp), contiguous, intent(out), target :: cmat(:, :)
+!   real(dp), pointer :: aptr(:, :)
+!   real(dp), pointer :: cptr(:)
+
+!   aptr(1:size(amat, 1)*size(amat, 2), 1:size(amat, 3)) => amat
+!   cptr(1:size(cmat)) => cmat
+
+!   cptr = matmul(aptr, bvec)
+! end subroutine matmul312
+
+
+    !.....................................................................
+!enddo
+
+ end subroutine Magnus_FormSol_2
+
+! ------------------------------------------------------------------------ -
+! EDGAR: CALCULATE quadrature rules and integrate all optical coefficients 
+!        by blocks along the ray.
+! -------------------------------------------------------------------------
+ subroutine Magnus_FormSol_3(nl,np,ds,epsZ,etaZ,roZ,stoks)
+    integer, intent(in) :: nl,np
+    real(kind=8),intent(in) :: ds(:),etaZ(:,:,:),roZ(:,:,:),epsZ(:,:,:)
+    real(kind=8),intent(inout) :: stoks(:,:)
+
+    real(kind=8),dimension(nl,4,4) :: omhat,omtil, evolop  !,intent(out)
+    real(kind=8) :: tau(nl),alfa(nl,3),beta(nl,3),emis(nl,4)!coef(0:10,nl)
+    real(kind=8),dimension(4,4,nl) :: fomhat,fomhat2,fomtil,fevolop,phi1
+    real(kind=8),dimension(nl) :: qq,rr,hh,hh_2,bhat_2,bhat,btil_2,btil,dhat,dtil,dhdt
+    real(kind=8),dimension(nl) :: f1h,fah,fbh,f2h, Chat, Ctil, Shat, Stil,exptau,tau_2,comfac
+    real(kind=8) ::pkpipp(np) !pk,pi
+    integer::kz,kw,ii,jj,kk
+
+    real(kind=8),dimension(nl) :: Feps, OFeps, Fptil,OFptil,Fphat,OFphat,aux1,aux2,qqsign
+
+
+    !INIT QUADRATURE WEIGHTS: Scheme:      k(O)*---ds(k)---*i(M)*---ds(k+1)---*k+1(P)
+    pkpipp= quadrature_weights(np,ds)!ds is already a small chunk
+
+    !PROGRAM ADAPTATIVE RECURSIVE QUADRATURE AND COMPOSED QUADRATURE RULE
+    !add also routine to select the cuadrature coeffs for 1,2, ans 3 points (still with parab interpolants)
+
+    !Integration of optical coefficients alog the ray
+            tau(:)=MATMUL(etaZ(:,:,1),pkpipp)
+            do kk=1,3
+            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp)
+            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)
+            emis(:,kk) = MATMUL(epsZ(:,:,kk),pkpipp)
+            enddo
+            emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
+
+        !IT SEEMS BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
+        !TO AVOID TRANPOSING THE TWO OM MATRICES BELOW WHICH HAVE 16 ELEMENTS EACH
+        !OR JUST FILL LORENTZ ALONG WAVELENGTH, NOT ALONG STOKES!
+    
+    !.....................................................................
+    !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
+
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
+            do ii=1,3 !Efficient calculation without matrix inversions
+                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
+                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
+            enddo    !Results are (kw, 4column,4row)
+            !Most efficient way I have found to exchange dimensions for speeding up last step
+            !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
+            !$OMP PARALLEL DO --> try this
+            do kk =1,nl
+                do jj=1,4
+                    do ii=1,4
+                        fomhat(ii,jj,kk)=Omhat(kk,ii,jj)
+                        fomtil(ii,jj,kk)=Omtil(kk,ii,jj)
+                    enddo
+                enddo
+                fomhat2(1:4,1:4,kk)=MATMUL(fomhat(1:4,1:4,kk),fomhat(1:4,1:4,kk))
+            enddo  !Results are (4column,4row,kw)
+            ! !$OMP END PARALLEL DO
+
+            !.................ADD SIGNS EDGAR Here and in trigo functions!....................................................
+            qq = 2.0*dot_productF2(alfa,beta) !--> THIS HAS THE KEY SIGN OF f1b
+            qqsign = get_signsF1(qq)
+            !call dot_product_signF2(2.0*alfa,beta,qq,qqsign) !--> THIS HAS THE KEY SIGN OF f1b
+            
+            rr = dot_productF2(alfa,alfa) - dot_productF2(beta,beta)            
+            hh_2 = rr*rr + qq*qq   ;  hh= DSQRT(hh_2) !bhat_2+btil2
+            bhat_2= (hh+rr)/2.d0   ;  bhat= DSQRT(bhat_2) ! bhat and btil are modules:
+            btil_2= (hh-rr)/2.d0   ;  btil= DSQRT(btil_2) !their signs only matter in f1b and are accounted by qqsign
+
+
+            Chat=DCOSH(bhat) ; Ctil=DCOS(btil) ; Shat=DSINH(bhat) ; Stil=DSIN(btil)
+
+            exptau=DEXP(-tau)
+            comfac=exptau/hh
+
+            !Special functions * hh: 
+            f1h = comfac*(btil_2 * Chat +bhat_2*Ctil )!f0h !division by hh is made more efficiently in evolop
+            fah= - comfac*(bhat*Shat + btil*Stil)  !fah= - (bhat*Shat + btil*Stil) !f1ah
+            fbh= qqsign*comfac*(bhat*Stil - btil*Shat) !f1bh
+            f2h = comfac*(Chat - Ctil ) !f2
+
+
+            do kk =1,nl
+                fevolop(1:4,1:4,kk) = f1h(kk)*identt4(1:4,1:4) + &
+                    fah(kk)*fomhat(1:4,1:4,kk) + fbh(kk) * fomtil(1:4,1:4,kk) + &
+                    f2h(kk)*fomhat2(1:4,1:4,kk)  
+            enddo
+    !..................................................................... 
+    
+    !Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
+    Fphat=bhat/tau   ; OFphat= (1.d0 - Fphat*Fphat)*hh
+    Fptil=btil/tau   ; OFptil= (1.d0 + Fptil*Fptil)*hh
+    
+   !................................................................... 
+    !CALCULATE FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
+            
+    !CALCULATE PHI_1 FUNCTION REUSING MATRICES AND SOME VARIABLES 
+            
+    aux1=(exptau*(Ctil+Fptil*Stil)-1.d0)/OFptil
+    aux2=(exptau*(Chat+Fphat*Shat)-1.d0)/OFphat
+
+            f1h= bhat*Fphat*aux1 - btil*Fptil*aux2
+            f2h= -(aux1 + aux2)/tau
+    
+    aux1=(exptau*(Shat+Fphat*Chat)-Fphat)/OFphat
+    aux2=(exptau*(Stil+Fptil*Ctil)-Fptil)/OFptil
+    
+            fah= Fphat*aux1 + Fptil*aux2  !for Lhat
+            fbh= qqsign * (Fptil*aux1 - Fphat*aux2)   !for Ltil  -->defines signs
+
+            !.....................................................................
+            do kk =1,nl
+                phi1(1:4,1:4,kk) = f1h(kk)*identt4(1:4,1:4) +&
+                 fah(kk)*fomhat(1:4,1:4,kk) + & 
+                fbh(kk) * fomtil(1:4,1:4,kk) + &
+                f2h(kk)*fomhat2(1:4,1:4,kk)  
+        
+                !try transposing stokes before multiplying and retransposing again or redefine stokes
+                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+            enddo
+ end subroutine Magnus_FormSol_3
+    
   ! ------------------------------------------------------------------------ -
   ! EDGAR: Main synthesis routine of Hazel Experimental with all RT methods
   ! -------------------------------------------------------------------------
@@ -27,14 +471,6 @@ contains
  !real(kind=8),dimension(nl) :: epsi,epsq,epsu,epsv,etai,etaq,etau,etav
  !real(kind=8),dimension(nl) :: rhoi,rhoq,rhou,rhov
 
-
-    !------------ABSURD OPERATION THAT IS REPEATED FOR EVERY CELL OF THE RAY----------
-    !define it at intizialization and store globally in vars.f90    
-!    identt4 = 0.d0
-!    do i = 1, 4
-!        identt4(i,i) = 1.d0 
-!    enddo
-
     !----------------------------------------------------------------------------------
     if (synthesis_method == 0) then 
     !****************       
@@ -43,10 +479,6 @@ contains
         do ii = 1, 4 !we are using stkOut as stkIn incomming boundary condition and updating it
             stkOut(:,ii) = stkOut(:,ii) + ep(:,1,ii)!the 1 one here is current height 
         enddo
-        !stkOut(:,1) = stkOut(:,1) + epI(:,1)!the 1 in epI here is current height 
-        !stkOut(:,2) = stkOut(:,2) + epQ(:,1)!the 1 in epI here is current height 
-        !stkOut(:,3) = stkOut(:,3) + epU(:,1)!the 1 in epI here is current height 
-        !stkOut(:,4) = stkOut(:,4) + epV(:,1)!the 1 in epI here is current height 
     endif
     !----------------------------------------------------------------------------------
     if (synthesis_method == 1) then 
@@ -69,11 +501,17 @@ contains
     !----------------------------------------------------------------------------------
 
     if (synthesis_method == 6) then 
-        synthesis_method = 5
+        !CALCULATE MAGNUS EXPANSION UNTIL ORDER 1................
+       !call Magnus_O1(.....) and call Magnus_O2(.....)
+        
+        !pkpipp is not yet DEFINED IN SYNTH_METHODS ABOVE---->>CHANGE EDGAR
+        !call Magnus_FormSol_1(nl,ds,ep,et,ro,stkOut)
     endif
     !----------------------------------------------------------------------------------
     if (synthesis_method == 7) then 
-           synthesis_method = 5
+        !call Magnus_FormSol_2(stkOut,nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
+        !call Magnus_FormSol_3(nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
+    
     endif
 
     !----------------------------------------------------------------------------------

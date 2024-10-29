@@ -207,12 +207,13 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
     integer(c_int), intent(out) :: error
     !avoid setting eeini or othe var here, it will be remembered with attr save between calls to Hazel from Python
     integer ::  kk, kz, count, rate,ii, ee, eeini 
-    real(kind=8) ::  Start, End
+    real(kind=8) ::  Start, End!, pkpipp(dn+1)
 
     identt4 = 0.d0  !init identity matrix for the whole ray
     do kk = 1, 4
         identt4(kk,kk) = 1.d0 
     enddo
+
 
     error_code = 0     ;synthesis_method=method!passes through vars
     
@@ -220,13 +221,25 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
     if (dn/=0) eeini=1  !0 for dn=0 or 1 otherwise  
     ee=eeini ! ee=eeini  ; ii=ee-eeini+1   ;ee=ii+dn   with eeini=0 for dn=0 or 1 otherwise    
     
+
     do kk=0,nsteps-1 !divides ray in pieces remain=mod(nz,dn)
         ii=ee-eeini+1     ;ee=ii+dn !init,end of pieces 
         !print*,ii,ee!, eeini,dn,nsteps,ds(ii:ee),eps(1,ii:ee,1)
         print*,ii,ee
-!    
+!       !preliminar: method 6 is M1 with 3 points and 7 is M2, which is also M1 but restricted
+        ! to 1 point for larger number of points both should coincide
+        if (synthesis_method==6 .or. synthesis_method==7) then
+        
+        call Magnus_FormSol_1(nl,dn+1,ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut)
+        
+        else
+
         call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut) !efficient segmentation in stokes pars and ray pieces
         
+        !call Magnus_FormSol_2(ee-ii+1,stkOut,nl,ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 
+        !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &
+        !    rho(:,ii:ee,3))
+        endif
 
         !call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 
         !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &

@@ -1145,6 +1145,76 @@ contains
     end subroutine lin_interpol 
 
 
+! -----------------------------------------------------------------------------------------------
+! Solve dot product and matmul with vars that has a long dimension (e.g., frequency) as extra dimension
+! -----------------------------------------------------------------------------------------------
+    function dot_productF2(v1, v2)    
+    real(kind=8) :: v1(:,:), v2(:,:), dot_productF2(size(v1,1))
+
+        dot_productF2(:) = v1(:,1)*v2(:,1) +v1(:,2)*v2(:,2)+v1(:,3)*v2(:,3)
+    
+        return 
+    end function dot_productF2
+
+    !get ONLY SIGNS for all frequencies
+    function get_signsF1(v1)    
+    real(kind=8) :: v1(:), get_signsF1(size(v1))
+    integer :: kk
+    DO kk=1,size(v1) !read sign for each frequency
+        get_signsF1(kk)=DSIGN(1.d0,v1(kk))
+    ENDDO
+    return 
+    end function get_signsF1
+
+    !get BOTH vector product and signs for all frequencies
+    subroutine dot_product_signF2(v1,v2,vOut,signOut)
+    implicit none
+    real(kind=8),INTENT(IN) :: v1(:,:),v2(:,:)
+    real(kind=8),INTENT(OUT) :: vOut(:),signOut(:)
+    integer :: kk
+    vOut(:) = v1(:,1)*v2(:,1) +v1(:,2)*v2(:,2)+v1(:,3)*v2(:,3)
+    
+    DO kk=1,size(v1,1) !read sign for each frequency
+        signOut(kk) = DSIGN(1.d0,vOut(kk))
+    ENDDO
+
+    end subroutine dot_product_signF2
+
+    function matmulF3(m1, m2)    
+    real(kind=8) :: m1(:,:,:), m2(:,:,:), matmulF3(4,4,size(m1,3))
+    integer :: kk    
+
+        do kk=1,size(m1,3) !intended to be frequency dimension
+            matmulF3(:,:,kk) = matmul(m1(:,:,kk),m2(:,:,kk))
+        enddo
+        return 
+    end function matmulF3
+! ---------------------------------------------------------
+! Return quadrature integration weights for different schemes
+! ---------------------------------------------------------     
+
+    function quadrature_weights(np,ds)    
+    implicit none
+    integer:: np !NUMBER OF POINTS, not dn , which is np-1
+    real(kind=8) ::ci,cip,delk,pp,ds(:)  !pk,pi
+    real(kind=8) :: quadrature_weights(np)
+
+    !vector of quadrature coefficients for points 
+    if (np==3) then
+            !kzmin=1    ;delk=ds(kzmin)+ds(kzmin+1) !kzmax=3
+            delk=ds(1)+ds(2) 
+            ci=ds(1)/delk !ci=ds(kzmin)/delk
+            cip = 1.d0 - ci ! cip = ds(kzmin+1)/delk = 1.0 - ci
+            pp= 1.d0 / ci
+            !pi = pp / cip !=1.0/(ci*cip)
+            !pk = 3.0 - 1.0 / cip
+            quadrature_weights= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
+    else
+        quadrature_weights=ds
+    endif
+        return 
+    end function quadrature_weights
+
 ! ---------------------------------------------------------
 ! Given etaI, etaQ, etaU, etaV, rhoQ, rhoU and rhoV, fill the absorption matrix
 ! ---------------------------------------------------------     
@@ -1169,6 +1239,93 @@ contains
         matrix(4,3) = -rhoQ  
         
     end subroutine fill_absorption_matrix
+
+!----------------------------------------------------------------------------
+! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity 
+! Calling it as fill_Lorentz_matrix(lorentz,beta,-alfa) gives directly the 
+! inverse of propagation matrix, thus avoiding inverting a 4x4 matrix repeatedly
+!------------------------------------------------------------------------------
+
+ subroutine fill_Lorentz_freqs(lorentz,alfa,beta,ii)
+    real(kind=8) :: lorentz(:,:,:), alfa(:), beta(:)
+    integer:: ii
+
+    if (ii ==1) then
+        lorentz(:,1,1) = 0.d0
+        lorentz(:,2,2) = 0.d0
+        lorentz(:,3,3) = 0.d0
+        lorentz(:,4,4) = 0.d0
+        lorentz(:,1,2) = alfa(:) !etaQ
+        lorentz(:,2,1) = alfa(:) !etaQ
+        lorentz(:,3,4) = beta(:)   !rhoQ       
+        lorentz(:,4,3) = -beta(:) !-rhoQ        
+    else
+        if (ii == 2) then
+            lorentz(:,1,3) = alfa(:) !etaU
+            lorentz(:,3,1) = alfa(:) !etaU
+            lorentz(:,2,4) = -beta(:) !-rhoU
+            lorentz(:,4,2) = beta(:)   !rhoU                    
+        else
+            lorentz(:,1,4) = alfa(:) !etaV
+            lorentz(:,4,1) = alfa(:) !etaV          
+            lorentz(:,2,3) = beta(:) !rhoV !here fortran column (first index) seems row in physical matrix
+            lorentz(:,3,2) = -beta(:) !-rhoV
+        endif
+    endif        
+ end subroutine fill_Lorentz_freqs
+!-------
+
+!----------------------------------------------------------------------------
+! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity 
+! Calling it as fill_Lorentz_matrix(lorentz,beta,-alfa) gives directly the 
+! inverse of propagation matrix, thus avoiding inverting a 4x4 matrix repeatedly
+!------------------------------------------------------------------------------
+   subroutine fill_Lorentz_matrix(lorentz,alfa,beta)
+    real(kind=8) :: lorentz(:,:), alfa(:), beta(:)
+        lorentz(1,1) = 0.d0
+        lorentz(2,2) = 0.d0
+        lorentz(3,3) = 0.d0
+        lorentz(4,4) = 0.d0
+        lorentz(1,2) = alfa(1) !etaQ
+        lorentz(2,1) = alfa(1) !etaQ
+        lorentz(1,3) = alfa(2) !etaU
+        lorentz(3,1) = alfa(2) !etaU
+        lorentz(1,4) = alfa(3) !etaV
+        lorentz(4,1) = alfa(3) !etaV          
+        lorentz(2,3) = beta(3) !rhoV !here fortran column (first index) seems row in physical matrix
+        lorentz(3,2) = -beta(3) !-rhoV
+        lorentz(2,4) = -beta(2) !-rhoU
+        lorentz(4,2) = beta(2)   !rhoU                    
+        lorentz(3,4) = beta(1)   !rhoQ       
+        lorentz(4,3) = -beta(1) !-rhoQ        
+        
+    end subroutine fill_Lorentz_matrix
+!-------------------------------------------------------------------------------
+! Twin subroutine of fill_Lorentz matrix but his time specifying every parameter
+! To be called as:
+! call  fill_Lorent_hat(Omhat,alfa(1,kw),alfa(2,kw),alfa(3,kw),beta(1,kw),beta(2,kw),beta(3,kw))
+!--------------------------------------------------------------------------------
+   ! subroutine fill_Lorent_hat(lorentz,etaQ,etaU,etaV,rhoQ,rhoU,rhoV)   
+   !  real(kind=8) :: lorentz(:,:), etaQ, etaU, etaV, rhoQ, rhoU, rhoV
+
+   !      lorentz(1,1) = 0.d0
+   !      lorentz(2,2) = 0.d0
+   !      lorentz(3,3) = 0.d0
+   !      lorentz(4,4) = 0.d0
+   !      lorentz(1,2) = etaQ !alfa(1)
+   !      lorentz(2,1) = etaQ !alfa(1) 
+   !      lorentz(1,3) = etaU !alfa(2)
+   !      lorentz(3,1) = etaU !alfa(2)
+   !      lorentz(1,4) = etaV !alfa(3)
+   !      lorentz(4,1) = etaV !alfa(3)          
+   !      lorentz(2,3) = rhoV !beta(3) 
+   !      lorentz(3,2) = -rhoV !-beta(3)
+   !      lorentz(2,4) = -rhoU !-beta(2)
+   !      lorentz(4,2) = rhoU  !beta(2)                     
+   !      lorentz(3,4) = rhoQ  !beta(1)        
+   !      lorentz(4,3) = -rhoQ !-beta(1)        
+        
+   !  end subroutine fill_Lorent_hat
 
 
 !--------------------------------------------------------------

@@ -21,10 +21,11 @@ if 1==1:
 
 	pkws={'plotit':9,'nps':3,'var':'mono','method':1}
 	hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars with given-order function
-	m1.synthesize(plot='s1')#,FtS=fn)#frac=True  muAllen=0.9;
+	#m1.synthesize(plot='s1',FtS=fn)#frac=True  muAllen=0.9;
+	for mm in ['M2','M1']:m1.synthesize(plot='s1',method=mm,fractional=True)
 else: 
 	m1,des=hazel.readmodel(fn) #,'Emissivity'
-	for mm in ['EvolOp']:m1.synthesize(plot='s1',FtR=fn,method=mm)
+	for mm in ['EvolOp','M1']:m1.synthesize(plot='s1',FtR=fn,method=mm)
 	#m1.mutates('s1', apmosekc='0110')
 
 m1.exit_hazel()
