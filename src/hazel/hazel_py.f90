@@ -135,9 +135,9 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
    
         !------------------------COMPOSE OPT COEFFS-----------------------------------------------------
         !Note: inner optical coeffs start in index 0 while Out optical coeffs in 1.
-        !Note: rho coeffs go with indexes 1,2,3 always also in fixed(index) 
-        do i = 1, 3
-            rhoOut(1,i,:)=0.0! Magneto-optical effects
+        !THIS IS NOT TRUE ANYMORE: rho coeffs go with indexes 1,2,3 always also in fixed(index) 
+        do i = 1, 3 !-->NOT NEEDED BECAUSE WERE PUT TO ZERO IN rt_coef.f90
+            rhoOut(:,1,i)=0.d0! Magneto-optical effects
         enddo
         if (fixed(index)%use_atomic_pol == 1 ) then!when no atompol case, extract only zeeman coefs.
             do i = 1, 4 ! Emission and Absorption including stimulated emission
@@ -148,7 +148,7 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
             enddo
             if (use_mag_opt_RT == 1) then
                 do i = 1, 3
-                    rhoOut(:,1,i)= fixed(index)%mag_opt(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i,:) !rho1(Q),rho2(U),rho3(V)
+                    rhoOut(:,1,i)= fixed(index)%mag_opt(i-1,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i-1,:) !rho1(Q),rho2(U),rho3(V)
                     !rhoOut(1,i,:)= fixed(index)%mag_opt(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim(i,:) !rho1(Q),rho2(U),rho3(V)
                 enddo
             endif  
@@ -161,7 +161,7 @@ subroutine c_rtcoeffs(index,B1Input, hInput, transInput, anglesInput, nLambdaInp
             enddo
             if (use_mag_opt_RT == 1) then
                 do i = 1, 3
-                    rhoOut(:,1,i)= fixed(index)%mag_opt_zeeman(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i,:) !rho1(Q),rho2(U),rho3(V)
+                    rhoOut(:,1,i)= fixed(index)%mag_opt_zeeman(i-1,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i-1,:) !rho1(Q),rho2(U),rho3(V)
                     !rhoOut(1,i,:)= fixed(index)%mag_opt_zeeman(i,:)-use_stim_emission_RT * fixed(index)%mag_opt_stim_zeeman(i,:) !rho1(Q),rho2(U),rho3(V)
                 enddo
             endif  

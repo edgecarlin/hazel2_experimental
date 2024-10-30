@@ -2,6 +2,7 @@ module synth
 use vars
 use SEE
 use rt_coef
+!USE OMP_LIB
 implicit none
   
   integer :: npsf  ! JDLCR: vars for convolution with PSF
@@ -79,7 +80,8 @@ contains
             enddo    !Results are (kw, 4column,4row)
             !Most efficient way I have found to exchange dimensions for speeding up last step
             !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
-            !$OMP PARALLEL DO --> try this
+            
+            !$OMP PARALLEL DO !--> 
             do kk =1,nl
                 do jj=1,4
                     do ii=1,4
@@ -89,7 +91,7 @@ contains
                 enddo
                 fomhat2(1:4,1:4,kk)=MATMUL(fomhat(1:4,1:4,kk),fomhat(1:4,1:4,kk))
             enddo  !Results are (4column,4row,kw)
-            ! !$OMP END PARALLEL DO
+            !$OMP END PARALLEL DO
 
             !.................ADD SIGNS EDGAR Here and in trigo functions!....................................................
             !signs issue: signs could be defined seeing if bhat_2<0 and/or if btil2 <0.
@@ -109,7 +111,7 @@ contains
             exptau=DEXP(-tau)
             comfac=exptau/hh
 
-            !Special functions * hh: 
+            !Special functions: 
             f1h = comfac*(btil_2 * Chat +bhat_2*Ctil )!f0h !division by hh is made more efficiently in evolop
             fah= - comfac*(bhat*Shat + btil*Stil)  !fah= - (bhat*Shat + btil*Stil) !f1ah
             fbh= qqsign*comfac*(bhat*Stil - btil*Shat) !f1bh
@@ -124,25 +126,31 @@ contains
     !..................................................................... 
     
     !Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
-    Fphat=bhat/tau   ; OFphat= (1.d0 - Fphat*Fphat)*hh
-    Fptil=btil/tau   ; OFptil= (1.d0 + Fptil*Fptil)*hh
+    comfac=hh*tau
+    Fphat=bhat/tau   ; OFphat= (1.d0 - Fphat*Fphat)*comfac
+    Fptil=btil/tau   ; OFptil= (1.d0 + Fptil*Fptil)*comfac
     
    !................................................................... 
     !CALCULATE FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
             
     !CALCULATE PHI_1 FUNCTION REUSING MATRICES AND SOME VARIABLES 
-            
+
     aux1=(exptau*(Ctil+Fptil*Stil)-1.d0)/OFptil
     aux2=(exptau*(Chat+Fphat*Shat)-1.d0)/OFphat
 
-            f1h= bhat*Fphat*aux1 - btil*Fptil*aux2
-            f2h= -(aux1 + aux2)/tau
+            !f1h= bhat*Fphat*aux1 - btil*Fptil*aux2
+            f1h= bhat_2*aux1 - btil_2*aux2
+            f2h= -(aux1 + aux2)!/tau
     
     aux1=(exptau*(Shat+Fphat*Chat)-Fphat)/OFphat
     aux2=(exptau*(Stil+Fptil*Ctil)-Fptil)/OFptil
     
-            fah= Fphat*aux1 + Fptil*aux2  !for Lhat
-            fbh= qqsign * (Fptil*aux1 - Fphat*aux2)   !for Ltil  -->defines signs
+            !fah= Fphat*aux1 + Fptil*aux2  !for Lhat
+            fah= bhat*aux1 + btil*aux2  !for Lhat
+            !fbh= qqsign * (Fptil*aux1 - Fphat*aux2)   !for Ltil  -->defines signs
+            fbh= qqsign * (btil*aux1 - bhat*aux2)   !for Ltil  -->defines signs
+
+
 
     !.....................................................................
     do kk =1,nl
