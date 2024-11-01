@@ -1196,23 +1196,30 @@ contains
     function quadrature_weights(np,ds)    
     implicit none
     integer:: np !NUMBER OF POINTS, not dn , which is np-1
-    real(kind=8) ::ci,cip,delk,pp,ds(:)  !pk,pi
+    real(kind=8) ::ci,cip,delk,pp,cipi,ds(:)  !pk,pi
     real(kind=8) :: quadrature_weights(np)
 
-    !vector of quadrature coefficients for points 
-    if (np==3) then
+    SELECT CASE (np)
+       CASE (3) !order-4 precision
             !kzmin=1    ;delk=ds(kzmin)+ds(kzmin+1) !kzmax=3
             delk=ds(1)+ds(2) 
             ci=ds(1)/delk !ci=ds(kzmin)/delk
-            cip = 1.d0 - ci ! cip = ds(kzmin+1)/delk = 1.0 - ci
+            !cip = 1.d0 - ci ! cip = ds(kzmin+1)/delk = 1.0 - ci
+            cipi = 1.d0/(1.d0 - ci) 
             pp= 1.d0 / ci
             !pi = pp / cip !=1.0/(ci*cip)
             !pk = 3.0 - 1.0 / cip
-            quadrature_weights= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
-    else
-        quadrature_weights=ds
-    endif
-        return 
+            !quadrature_weights= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
+            quadrature_weights= (delk*0.1666666666666666d0) * [ 3.d0-cipi , pp*cipi , pp ] 
+       CASE (2) !2-point trapezoidal
+          quadrature_weights= [ds(1) *0.5d0, ds(1) *0.5d0]
+       CASE (1)
+          quadrature_weights=ds
+       CASE DEFAULT
+          quadrature_weights=ds
+    END SELECT
+    
+    return 
     end function quadrature_weights
 
 ! ---------------------------------------------------------
@@ -1328,6 +1335,60 @@ contains
    !  end subroutine fill_Lorent_hat
 
 
+!--------------------------------------------------------------
+! Calculation of Lorentz functions for evol op and transfer matrix phi1
+!--------------------------------------------------------------
+
+    subroutine get_Lorentz_funs(nl,qq,rr,tau,f1,fa,fb,f2,g1,ga,gb,g2)
+    integer:: nl
+    real(kind=8),dimension(:) :: tau,qq,rr !INTENT(IN)
+    real(kind=8),dimension(:) :: f1,fa,fb,f2, g1,ga,gb,g2!INTENT(OUT)
+
+    real(kind=8),dimension(nl) :: hh,hh_2,bhat_2,bhat,btil_2,btil,dhat,dtil
+    real(kind=8),dimension(nl) :: Chat, Ctil, Shat, Stil,exptau,comfac
+
+    real(kind=8),dimension(nl) :: Fptil,OFptil,Fphat,OFphat,aux1,aux2,qqsign
+        
+        qqsign = get_signsF1(qq)
+
+        !calculate squared roots without sign and add sign later where required
+        hh_2 = rr*rr + qq*qq   ;  hh= DSQRT(hh_2) !bhat_2+btil2
+        bhat_2= (hh+rr)*0.5d0   ;  bhat= DSQRT(bhat_2) ! bhat and btil are modules:
+        btil_2= (hh-rr)*0.5d0   ;  btil= DSQRT(btil_2) !their signs only matter in f1b and are accounted by qqsign
+
+
+        Chat=DCOSH(bhat) ; Ctil=DCOS(btil) ; Shat=DSINH(bhat) ; Stil=DSIN(btil)
+
+        exptau=DEXP(-tau)
+        comfac=exptau/hh
+        !Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
+
+        !Special functions: 
+        f1 = comfac*(bhat_2 * Ctil +btil_2*Chat )!f0h !division by hh is made more efficiently in comfac
+        fa= -comfac*(bhat*Shat + btil*Stil)  !fa
+        fb= qqsign*comfac*(bhat*Stil - btil*Shat) !fb
+        f2 = comfac*(Chat - Ctil ) !f2
+
+       !..................................................................... 
+        comfac=hh*tau
+        Fphat=bhat/tau   ; OFphat= 1.d0/((1.d0 - Fphat*Fphat)*comfac)
+        Fptil=btil/tau   ; OFptil= 1.d0/((1.d0 + Fptil*Fptil)*comfac)
+       !................................................................... 
+        !CALCULATE PHI_1 and FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
+        aux1=(1.d0-exptau*(Chat+Fphat*Shat))*OFphat !Ghat
+        aux2=(1.d0-exptau*(Ctil-Fptil*Stil))*OFptil !Gtil
+
+                g1= (btil_2*aux1 + bhat_2*aux2)
+                g2= (aux1 - aux2)
+        
+        aux1=(Fphat-exptau*(Shat+Fphat*Chat))*OFphat  !Ghat_prime
+        aux2=(Fptil-exptau*(Stil+Fptil*Ctil))*OFptil !Gtil_prime
+        
+                ga= -(bhat*aux1 + btil*aux2)  !for Lhat
+                gb= qqsign * (bhat*aux2- btil*aux1)   !for Ltil  -->defines signs
+
+
+    end subroutine get_Lorentz_funs
 !--------------------------------------------------------------
 ! Inversion of a 4x4 matrix
 !--------------------------------------------------------------

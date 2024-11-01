@@ -147,8 +147,8 @@ class ModelRT(object):
         self.lock_fractional=None
 
         #synthesis methods to be implemented
-        self.methods_dicT={0:'Emissivity',1:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'M1',7:'M2'} 
-        self.methods_dicS={'Emissivity':0,'Delo1':1,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'M1':6,'M2':7} 
+        self.methods_dicT={0:'Emissivity',1:'Trap',11:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'M1',7:'M2'} 
+        self.methods_dicS={'Emissivity':0,'Trap':1,'Delo1':11,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'M1':6,'M2':7} 
         self.methods_list=[ss for ss,tt in self.methods_dicS.items()] #list with only the names
         
         self.synmethod=5 #5 is default and can be changed by add_spectrum and /or by synthesize.
@@ -2035,6 +2035,10 @@ class ModelRT(object):
         #--------------------------------------------------------------------------------
     
     def synth_piece(self,sp,nn,ii,ee,method,nLambdaIn,stokes_in=None):
+        #deprecated routine
+        #caution: here tau is still introduced as input, not ds. 
+        #hence, result depends on how tau is interpreted as input
+        #because we are not using get_dsLOS().
         hIn = self.hz[ii:ee]#aself.height#self.hz[ini:end]  #aself.height --> was single height for a given atmosphere cell 
         tauIn = self.pars2D[3,ii:ee] #aself.parameters['tau']
         betaIn = self.pars2D[6,ii:ee]
@@ -2075,8 +2079,14 @@ class ModelRT(object):
         with very small length. If dn>1 the quadrature is posed to require dn-1 points per every step of
         dn data points, and then the aux TOP point is not necessary.'''  
                 
-        if (self.choice==0):ds=self.pars2D[3,:]/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
-        else:ds=np.diff(self.hz,append=1.01*self.hz[-1])/sp.mu #ds(kz) = hz(kz+1)-hz(kz) !hz given by user
+        if (self.choice==0):#calcualate from input tau or from input hz
+            #here you can see input tau as dtau
+            #ds=self.pars2D[3,:]/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
+            
+            #OR see it as tau and calculate dtau assuming top point having tau=0.01
+            ds=-np.diff(self.pars2D[3,:],append=0.9*self.pars2D[3,-1])/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
+        else:
+            ds=np.diff(self.hz,append=1.01*self.hz[-1])/sp.mu #ds(kz) = hz(kz+1)-hz(kz) !hz given by user
         self.actual_hz=ds.cumsum()
         self.actual_dtau=np.max(sp.rteta[:,:,0],axis=0)*ds[:] 
         '''The following dtau is also obtained in Fortran from ds if the method require dtau and not ds'''        

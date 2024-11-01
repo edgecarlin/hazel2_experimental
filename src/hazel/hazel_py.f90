@@ -225,13 +225,14 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
     do kk=0,nsteps-1 !divides ray in pieces remain=mod(nz,dn)
         ii=ee-eeini+1     ;ee=ii+dn !init,end of pieces 
         !print*,ii,ee!, eeini,dn,nsteps,ds(ii:ee),eps(1,ii:ee,1)
-        print*,ii,ee
+        !print*,ii,ee
 !       !preliminar: method 6 is M1 with 3 points and 7 is M2, which is also M1 but restricted
         ! to 1 point for larger number of points both should coincide
-        if (synthesis_method==6 .or. synthesis_method==7) then
         
+        if (synthesis_method==6 .or. synthesis_method==7 .or. synthesis_method==1) then
+
         call Magnus_FormSol_1(nl,dn+1,ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut)
-        
+
         else
 
         call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut) !efficient segmentation in stokes pars and ray pieces
@@ -240,7 +241,7 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
         !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &
         !    rho(:,ii:ee,3))
         endif
-
+        
         !call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 
         !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &
         !    rho(:,ii:ee,3),stkOut) !efficient segmentation in stokes pars and ray pieces

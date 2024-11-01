@@ -2,7 +2,7 @@ import hazel
 import matplotlib.pyplot as pl
 import numpy as np
 import sys
-
+import copy as cp
 #fn='m1_coeffs_7p.hazexp'
 fn='m1_coeffs_7p_test.hazexp'
 #fn='m1_coeffs_57p.hazexp'
@@ -16,13 +16,17 @@ if 1==1:
 		topology=to,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
 	#----------------------------------------------------------------------------------
 	dlims={'B1':[350.,100.], 'B2': [89.,90.], 'B3':[44.,49.],\
-		'tau':[6.,0.2],'v':[0.,4.],'deltav':[4.,7.],'a':[0.2,0.1] ,\
+		'tau':[10.,0.02],'v':[0.,0.],'deltav':[4.,7.],'a':[0.2,0.1] ,\
 		'j10':[0.01,0.02],'j20f':[1.,1.5],'beta':[1.,1.]} #...'ff':[1,1],'nbar':[1,1]}
 
 	pkws={'plotit':9,'nps':3,'var':'mono','method':1}
 	hz=m1.set_funcatm(dlims,orders=4,**pkws) #set atm pars with given-order function
 	#m1.synthesize(plot='s1',FtS=fn)#frac=True  muAllen=0.9;
-	for mm in ['EvolOp','M2']:m1.synthesize(plot='s1',method=mm,fractional=True)
+	spe=[]
+	line=['-','--']
+	for kk,mm in enumerate(['EvolOp','M2','Trap']):
+		m1.synthesize(plot='s1',method=mm,fractional=False)
+		spe.append(cp.deepcopy(m1.spectrum))
 else: 
 	m1,des=hazel.readmodel(fn) #,'Emissivity'
 	for mm in ['EvolOp','M1']:m1.synthesize(plot='s1',FtR=fn,method=mm)
