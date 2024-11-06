@@ -119,7 +119,8 @@ class ModelRT(object):
 
         #apmosekcL is List whose last element is other list with dcol
         self.apmosekcl=self.get_apmosekcl(apmosekc,dcol,extrapars) 
-        self.choice=1#calcualte ds directly from hz introduced later in add_funcatmos
+        self.choicehz=1#calcualte ds directly from hz introduced later in add_funcatmos
+        self.keytau='tau'
 
         #Dictio of minimum, default, and maximum values for all possible pars in Hazel atmosphere 
         #this could be conflicting with the use of "ranges", but such ranges seem to be applied only
@@ -129,7 +130,7 @@ class ModelRT(object):
         self.limB=4000.
         self.dmm={'Bx': [0.,100.,self.limB], 'By': [0.,100.,self.limB], 'Bz': [0.,100.,self.limB], \
             'B': [0.,100.,self.limB], 'thB': [0.,0.,180.], 'phB': [-360.,0.,360.], \
-                'tau':[0.,1.,1000.],'v':[-50.,0., 50.],'deltav':[0.5,2.,15.], \
+                'tau':[0.,1.,1000.],'dtau':[0.01,1.,100.],'v':[-50.,0., 50.],'deltav':[0.5,2.,15.], \
                 'beta':[0.,1.,10.],'a':[0.,0.1,10.],'ff':[0.,1.,1.], \
                 'j10':[0.,0.,1.],'j20f':[0.,1.,1000.],'nbar':[0.,1.,1.]}
         self.dlims=None
@@ -419,7 +420,7 @@ class ModelRT(object):
 
         for i in range(4): 
             if i ==0:
-                self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:])
+                self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:],line)
             else:
                 if fractional:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:]/sp.stokes[0,:],line)
                 else:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:],line)
@@ -588,12 +589,12 @@ class ModelRT(object):
         #selected labs in set_funcatmos :
         #selected=['B1','B2','B3','tau','v','deltav','beta','a','j10','j20f']# ATMAT ORDER
         #idem but with 'beta' at the end 
-        labs=['B1','B2','B3','tau','v','deltav','a','j10','j20f','beta'] #PLOT ORDER
+        labs=['B1','B2','B3',self.keytau,'v','deltav','a','j10','j20f','beta'] #PLOT ORDER
         #But after calling self.set_funcatmos from main, dlims is modified to bunch of labels:
         allabs=labs+['ff', 'nbar']#list(dlims.keys())
 
         for i,ax in enumerate(axs):
-            if allabs[i]=='deltav':
+            if (allabs[i]=='deltav' and pkws['mint']==True):
                 hzi,yi=self.fun_minT([hz[0],hz[-1]],dlims['deltav'])
                 ax.plot(hzi, yi, '-')
             else:    
@@ -652,7 +653,7 @@ class ModelRT(object):
 
         return vth,temp,dlamd
 
-    def fun_minT(self,hzl,dlims,f2=None,d1=2.,z1=500.,hz=None):
+    def fun_minT(self,hzl,dlims,f2=None,d1=2.,z1=500.,hz=None,npoints=30):
         '''Create non-monotonic function in vth mimicking a chromospehric minimum of T
         at (z1,d1)=(500,2) with exact lower boundary value, minimum value, and an upper boundary value 
         determined by d2=d1*f2. Typically f2 >1.0 for a chromospheric rise 
@@ -664,7 +665,7 @@ class ModelRT(object):
 
         '''
         #set data. z1 is hardcoded to 500 km
-        if hz is None:hz = np.linspace(hzl[0], hzl[-1], num=30)
+        if hz is None:hz = np.linspace(hzl[0], hzl[-1], num=npoints)
         z2=hz[-1]
 
         d0,d2=dlims[0],dlims[-1]
@@ -709,9 +710,9 @@ class ModelRT(object):
 
 
     def mutates(self,spec,parsdic=None,\
-        B1=None,B2=None,B3=None,tau=None,v=None,deltav=None, beta=None,a=None,ff=None,\
+        B1=None,B2=None,B3=None,tau=None,dtau=None,v=None,deltav=None, beta=None,a=None,ff=None,\
         j10=None,j20f=None,nbar=None, \
-        apmosekc=None,dcol=None, \
+        apmosekc=None,dcol=None, RTmethod=None,hztype='parab',orders=1,\
         compare=True,frac=False,ax=None,pkws=None,bylayer=False):
         '''
         Create mutations in the synthesis Model, allowing repetition of an experiment changing
@@ -755,12 +756,13 @@ class ModelRT(object):
         extrapars_list=['Atompol','MO effects','Stim. emission','Kill coherences']
 
         #parameters of chromosphere objects
-        atmpars=['B1','B2','B3','tau','v','deltav','beta','a','ff','j10','j20f','nbar']
+        atmpars=['B1','B2','B3','tau','dtau','v','deltav','beta','a','ff','j10','j20f','nbar']
 
         #checkdictio lists parameters that can be mutated until now using parsdic.
         checkdictio={'apmosekc':None,'dcol':None,'Atompol':None,'MO effects':None,'Stim. emission':None,'Kill coherences':None,
-            'B1': None, 'B2': None, 'B3': None,'tau':None,'v':None,'deltav':None,'beta':None,
-            'a':None,'ff':None,'j10':None,'j20f':None,'nbar':None}
+            'B1': None, 'B2': None, 'B3': None,'tau':None,'dtau':None,'v':None,'deltav':None,'beta':None,
+            'a':None,'ff':None,'j10':None,'j20f':None,'nbar':None,'RTmethod':None}
+        #keywds that has to be changed, RTmethod is changed directly below
         kwskeys=['apmosekc','dcol']+atmpars    
         #Atompol, MOeffects, S.emiss, and Kill-coherences can be introduced via
         #apmosekc or via parsdic but not as specific long keywords. However those 
@@ -852,6 +854,7 @@ class ModelRT(object):
         newspec.synthesis_from_model=True
 
         newspec.add_spectrum(newmo.nch, wvl, wvl_lr)#reset stokes, eps, eta, stim, etas, rhos
+        if RTmethod is not None:newmo.synmethod=RTmethod
         '''
         We could directly modify hazelpars in atmopsheres(with this line in
         chromosphere.py: self.atompol,self.magopt,self.stimem,self.nocoh,self.dcol = hazelpars) 
@@ -859,35 +862,45 @@ class ModelRT(object):
         '''
         if (self.verbose >= 1):self.logger.info('Mutating atmospheric pars...')
         
-         
-        if bylayer is True:#change the atmosphere only at the specified layers
-            #run over the existing atmospheres of this spectrum topology and set pars
-            for n, order in enumerate(newmo.atms_in_spectrum[newspecname] ): #n run layers along the ray
-                for k, atm in enumerate(order):  #k runs subpixels of topologies c1+c2                                                  
-                    at=newmo.atmospheres[atm]
-                    """
-                    Activate this spectrum with add_active_line for all existing atmospheres.
-                    In normal setup, activate_lines is called after adding all atmospheres in topology.
-                    """         
-                    at.add_active_line(spectrum=newspec, wvl_range=np.array(wvl_range))
+        #run over the existing atmospheres of this spectrum topology and set pars
+        for n, order in enumerate(newmo.atms_in_spectrum[newspecname] ): #n run layers along the ray
+            for k, atm in enumerate(order):  #k runs subpixels of topologies c1+c2                                                  
+                at=newmo.atmospheres[atm]
+                """
+                Activate this spectrum with add_active_line for all existing atmospheres.
+                In normal setup, activate_lines is called after adding all atmospheres in topology.
+                """         
+                at.add_active_line(spectrum=newspec, wvl_range=np.array(wvl_range))
 
-                    #SET HAZELPARS: self.atompol,self.magopt,self.stimem,self.nocoh,self.dcol = hazelpars                
-                    at.atompol,at.magopt,at.stimem,at.nocoh,at.dcol = newmo.apmosekcl 
-                    
+                #SET HAZELPARS: self.atompol,self.magopt,self.stimem,self.nocoh,self.dcol = hazelpars                
+                at.atompol,at.magopt,at.stimem,at.nocoh,at.dcol = newmo.apmosekcl 
+
+                if bylayer is True:#change the atmosphere only at the specified layers
+                    alguno=0
                     #key=[atm_number,value]#key value. Produce mutation updating atm.dna[key]            
                     for key in mutating_keys:#print(key,parsdic[key][0],parsdic[key][1])
                         #if in selected layer mutate one layer at a time for every parameter,
                         #but layer can be different among parameters
-                        if (parsdic[key][0]==n+k):at.dna[key]=parsdic[key][1] #mutates dna.  #print(key,n+k)
-                    pars,kwds=at.get_dna() #get updated dna pars of this single atmosphere                     
-                    at.set_pars(pars,**kwds)#ff=at.atm_dna[8],j10=at.atm_dna[9],j20f=at.atm_dna[10],nbar=at.atm_dna[11]) 
-        else:#change the whole atmosphere 
+                        if (parsdic[key][0]==n+k):
+                            alguno=1
+                            at.dna[key]=parsdic[key][1] #mutates dna.  #print(key,n+k)
+                            print("CAUTION: the code is incomplete here, pars2D not being updated yet")
+                            #self.pars2D[ksel[kk],:]=parsdic[key][1]
+                            #tags in the order expected for building the matrix pars2D to feed set_paramaters
+                            #alls=['B1','B2','B3',self.keytau,'v','deltav','beta','a','j10','j20f']
+                    if alguno==1:
+                        pars,kwds=at.get_dna() #get updated dna pars of this single atmosphere                     
+                        at.set_pars(pars,**kwds)#ff=at.atm_dna[8],j10=at.atm_dna[9],j20f=at.atm_dna[10],nbar=at.atm_dna[11]) 
+
+        if bylayer is False:#change the whole atmosphere 
             for k in mutating_keys:newmo.dlims[k]=parsdic[k]
             pkws['plotit']=0
-            hz=newmo.set_funcatm(newmo.dlims,selected=mutating_keys,hztype='parab',\
-                orders=4,**pkws)
-
+            hz=newmo.set_funcatm(newmo.dlims,selected=mutating_keys,hztype=hztype,\
+                orders=orders,**pkws)#DNA is also being updated here
         #--------------------------------------------------------------------------------
+        #force calculation of SEE in synthesize
+        newspec.rteps[:]=0.0 
+
         #Synthesize the new spectrum in original model FROM the new model object:
         newmo.synthesize(method=self.methods_dicT[newmo.synmethod],muAllen=newmo.muAllen,obj=self)
         if (self.verbose >= 1):self.logger.info('Spectrum {0} has mutated.'.format(spec.name))
@@ -1415,7 +1428,7 @@ class ModelRT(object):
         self.n_chromospheres=Ncells
 
         if hzlims is None:
-            self.choice=0#calculate ds from tau in atm model
+            self.choicehz=0#calculate ds from tau in atm model
             hzlims=[1.,1500.]#default just to fill something in chromospheres
         self.hzlims=hzlims
 
@@ -1580,10 +1593,13 @@ class ModelRT(object):
                 myfx_eval = np.poly1d(np.polyfit(xps, yps, order))
                 myfx=myfx_eval(xx)
         else:
-            if var=='tau':myfx=exp_2points(xx,xpl,ypl)#exponential for tau  
+            if var=='tau': 
+                myfx=exp_2points(xx,xpl,ypl)#exponential for tau  
             #exp3 not working properly:
             if var=='exp3':xps,yps,myfx=self.get_exp3points(xx,xpl,ypl)#ypl is dlims['tau']
-            if var=='deltav':aux,myfx=self.fun_minT(0,ypl,hz=xx)#get minimum of temp function
+            if var=='deltav':
+                aux,auxfx=self.fun_minT(xpl,ypl,npoints=100)#get temp function with 30 points
+                myfx=np.interp(xx,aux,auxfx)
             if var=='non-mono':#crazy non-monotonic
                 xps = np.linspace(xpl[0],xpl[1],nps)#few nps points contained between limits xpl 
                 yps=self.get_yps(xps,ypl,method=method,nps=nps)#method 2 is preferred by default
@@ -1614,8 +1630,15 @@ class ModelRT(object):
         variation between ini and end values given as input parameters in dlims. 
         zhlims was stored in model self.hzlims but here we can overwrite with args '''
 
+        #identify whether tau or dtau
+        if 'dtau' in dlims:self.keytau='dtau'
+        else:self.keytau='tau'
+        
+        #identify whether MinT or not 
+        if 'mint' not in pkws:pkws['mint']=False
+
         #tags in the order expected for building the matrix pars2D in the order expected for set_paramaters
-        alls=['B1','B2','B3','tau','v','deltav','beta','a','j10','j20f']
+        alls=['B1','B2','B3',self.keytau,'v','deltav','beta','a','j10','j20f']
         Ncells=self.n_chromospheres        
 
         if not selected:#empty list marks first call to set_funcatm
@@ -1652,9 +1675,9 @@ class ModelRT(object):
                     p2D[ksel[kk],:]=dlims[key][0]
                     if (orders[ksel[kk]]>0)&(self.verbose >= 1):warnings.warn("The quantity {0} is being forced to keep constant values.".format(key))
                 else:
-                    if key=='tau' or key=='deltav':#create exponential or minT functions
+                    if (key=='tau') or (key=='deltav' and pkws['mint']==True):#create exponential or minT functions
                         p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
-                    else:
+                    else:#dtau is not exponential but follows the given polinomial order
                         p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
         else:  #only 2-cell case (limiting cells)
             for kk,key in enumerate(selected):
@@ -1860,7 +1883,7 @@ class ModelRT(object):
                 for subp, atm in enumerate(order):  #subp runs subpixels of topologies c1+c2                              
                     if (subp != 0):raise Exception("WARNING: Subpixel components are not yet allowed in this Model version.")
 
-            if (FtR == '') and np.all(self.spectrum[k].rteps==0):    #if (fromfile == ''):     ...,FtS=saveto)
+            if (FtR == '') and np.all(self.spectrum[k].rteps==0.0):    #if (fromfile == ''):     ...,FtS=saveto)
                 self.solve_SEE_and_rtcoeffs(self.spectrum[k],FtS=FtS)
             else:
                 if self.spectrum[k].rteps is None:print("No opt. coeffs. available: load file or activate SEE.")
@@ -1905,7 +1928,7 @@ class ModelRT(object):
             args = (kk+1, BIn, self.hz[kk], transIn, sp.los, sp.nwvl,lamaxIn, deltavIn,dampingIn, 
                 j10In, dopVelIn, nbarIn, omegaIn, aself.atompol,aself.magopt,aself.stimem,
                 aself.nocoh,np.asarray(aself.dcol) )
-  
+            
             #3D opt coeffs (only 1 position for height dependence), for current slab self.index
             #this was the old call for opt coeffs with (nch,4,self.nwvl)
             #l,recomp,sp.rteps[kk:kk+1,:,:],sp.rteta[kk:kk+1,:,:],sp.rtrho[kk:kk+1,:,:],error = \
@@ -2079,12 +2102,13 @@ class ModelRT(object):
         with very small length. If dn>1 the quadrature is posed to require dn-1 points per every step of
         dn data points, and then the aux TOP point is not necessary.'''  
                 
-        if (self.choice==0):#calcualate from input tau or from input hz
-            #here you can see input tau as dtau
-            #ds=self.pars2D[3,:]/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
-            
-            #OR see it as tau and calculate dtau assuming top point having tau=0.01
-            ds=-np.diff(self.pars2D[3,:],append=0.9*self.pars2D[3,-1])/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
+        if (self.choicehz==0):#calcualate from input tau or from input hz
+            if self.keytau=='dtau': #here you can see input tau as dtau
+                ds=self.pars2D[3,:]/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
+            else:#OR see it as tau and calculate dtau assuming top point tau=0.01
+                #IMPORTANT:the minus is because tau is ASSUMED ALWAYS DECREASING
+                #and ds must be positive after diff
+                ds=-np.diff(self.pars2D[3,:],append=0.9*self.pars2D[3,-1])/(sp.mu*np.max(sp.rteta[:,:,0],axis=0))#ds(kz) = tau(kz)/maxval(etaI(kz,:))
         else:
             ds=np.diff(self.hz,append=1.01*self.hz[-1])/sp.mu #ds(kz) = hz(kz+1)-hz(kz) !hz given by user
         self.actual_hz=ds.cumsum()

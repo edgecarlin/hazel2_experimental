@@ -5,11 +5,9 @@ use rt_coef
 !USE OMP_LIB
 implicit none
   
-  integer :: npsf  ! JDLCR: vars for convolution with PSF
-  real(kind=8), allocatable :: psf(:)
-  !
-  PRIVATE :: npsf, psf
-
+!EDGAR: PSF convolution has been removed because it makes no sense to 
+!apply it during the radiative transfer, but only once on the result
+!,which is done in Python. 
 contains
 
 !subroutine Magnus_FormSol_1(stoks,nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
@@ -43,36 +41,11 @@ contains
     !Integration of optical coefficients alog the ray
             tau(:)=MATMUL(etaZ(:,:,1),pkpipp)
             do kk=1,3  !go from (nw,nz,nquv) to (nw,nquv)
-            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp) 
-            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)
+            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp)!minus sign for -L 
+            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)!minus sign for -L 
             emis(:,kk) = MATMUL(epsZ(:,:,kk),pkpipp)
             enddo
             emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
-
-    !.....................................................................
-        !COULD BE BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
-        !TO AVOID TRANPOSING THE TWO OM MATRICES BELOW WHICH HAVE 16 ELEMENTS EACH
-        !OR JUST FILL LORENTZ ALONG WAVELENGTH, NOT ALONG STOKES!
-
-            ! !$OMP PARALLEL DO --> try this
-            ! do kk =1,nl!go from (nw,nquv) to (nquv,nw)
-            !         do ii=1,3
-            !             alfa(ii,kk)=Nalfa(kk,ii)
-            !             beta(ii,kk)=Nbeta(kk,ii)
-            !             emis(ii,kk)=Nemis(kk,ii)
-            !         enddo
-            !         emis(4,kk)=Nemis(kk,4)
-            ! enddo  
-            ! ! !$OMP END PARALLEL DO
-
-           !composition of Omega hat (Lorentz hat) and Omega tilde (Lorentz tilde) for one frequency:
-        ! do kw=1,nl
-        !     call  fill_Lorentz_matrix(Omhat(:,:,kw),alfa(:,kw),beta(:,kw)) !return 4x4 Omega hat
-        !     call  fill_Lorentz_matrix(Omtilde(:,:,kw),beta(:,kw),-alfa(:,kw)) !return 4x4 Ometa tilde
-        !     qq(kw) = dot_product(2.d0*alfa(:,kw),beta(:,kw))
-        !     rr(kw) = dot_product(alfa(:,kw),alfa(:,kw)) -dot_product(beta(:,kw),beta(:,kw))
-        !     !do rest of calcualtions here frequcny by frequency
-        ! end do
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
@@ -112,11 +85,11 @@ contains
          
                 phi1(1:4,1:4,kk) = g1(kk)*identt4(1:4,1:4) +&
                 ga(kk)*fomhat(1:4,1:4,kk) + & 
-                gb(kk) * fomtil(1:4,1:4,kk) + &
+                gb(kk)*fomtil(1:4,1:4,kk) + &
                 g2(kk)*fomhat2(1:4,1:4,kk)  
 
                 !try transposing stokes before multiplying and retransposing again or redefine stokes
-                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))!+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
             enddo
         
  end subroutine Magnus_FormSol_1
@@ -288,10 +261,30 @@ contains
             enddo
             emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
 
-        !IT SEEMS BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
+      !.....................................................................
+        !COULD BE BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
         !TO AVOID TRANPOSING THE TWO OM MATRICES BELOW WHICH HAVE 16 ELEMENTS EACH
         !OR JUST FILL LORENTZ ALONG WAVELENGTH, NOT ALONG STOKES!
-    
+
+            ! !$OMP PARALLEL DO --> try this
+            ! do kk =1,nl!go from (nw,nquv) to (nquv,nw)
+            !         do ii=1,3
+            !             alfa(ii,kk)=Nalfa(kk,ii)
+            !             beta(ii,kk)=Nbeta(kk,ii)
+            !             emis(ii,kk)=Nemis(kk,ii)
+            !         enddo
+            !         emis(4,kk)=Nemis(kk,4)
+            ! enddo  
+            ! ! !$OMP END PARALLEL DO
+
+           !composition of Omega hat (Lorentz hat) and Omega tilde (Lorentz tilde) for one frequency:
+        ! do kw=1,nl
+        !     call  fill_Lorentz_matrix(Omhat(:,:,kw),alfa(:,kw),beta(:,kw)) !return 4x4 Omega hat
+        !     call  fill_Lorentz_matrix(Omtilde(:,:,kw),beta(:,kw),-alfa(:,kw)) !return 4x4 Ometa tilde
+        !     qq(kw) = dot_product(2.d0*alfa(:,kw),beta(:,kw))
+        !     rr(kw) = dot_product(alfa(:,kw),alfa(:,kw)) -dot_product(beta(:,kw),beta(:,kw))
+        !     !do rest of calcualtions here frequcny by frequency
+        ! end do
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
@@ -300,8 +293,8 @@ contains
                 call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
                 call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
             enddo    !Results are (kw, 4column,4row)
-            !Most efficient way I have found to exchange dimensions for speeding up last step
             !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
+            !Most efficient way I have found to exchange dimensions for speeding up last step
             !$OMP PARALLEL DO --> try this
             do kk =1,nl
                 do jj=1,4
@@ -468,7 +461,7 @@ contains
             !StokesM(1:4) = stkIn(w,1:4) !StokesM(1:4) = fin%stokes_boundary(0:3,w)
             !Stokes0 = matmul(O_evol,stkIn(w,1:4)) + matmul(Psi_matrix,source * beta(kz))
             !stkOut(w,:) = Stokes0(:)            !Not efficient:dimensions should be exchanged
-            stkOut(w,:)= matmul(O_evol,stkOut(w,:)) !+ matmul(Psi_matrix,source)    
+            stkOut(w,:)= matmul(O_evol,stkOut(w,:)) + matmul(Psi_matrix,source)    
             !EDGAR:Are we here creating unnecesary copy?
         enddo
   
@@ -812,63 +805,6 @@ endif
 
     
     end subroutine do_synthesis
-
-
-  subroutine init_psf()
-    implicit none
-    character(len=7), parameter :: filename = 'psf.txt'
-    integer :: unit, ii
-    logical :: psf_exists
-    ! -------------------------------------------------------------------------
-    ! JDLCR: This function will only read the PSF (hardwired to psf.txt) in the first call.
-    ! -------------------------------------------------------------------------
-    if(allocated(psf)) return
-
-    psf_exists = .FALSE.
-    INQUIRE( FILE=filename, EXIST=psf_exists) 
-    if(.not. psf_exists) return
-
-    print *, 'Using PSF'  
-    unit = 1
-    OPEN(unit, FILE=filename, status='OLD')  ! Open PSF file and read
-    read(unit,*) npsf ! Number of elements of the PSF
-
-    allocate(psf(npsf)) ! allocate array to store the PSF
-    
-    do ii=1,npsf
-       read(unit,*) psf(ii)
-    end do    
-    CLOSE(unit)
-  end subroutine init_psf
-
- ! -------------------------------------------------------------------------
-  ! JDLCR: This function computes convolution without FFTs.
-  ! It will not pad the arrays,use the part of the PSF inside the range of the spectra.
-  ! -------------------------------------------------------------------------
- subroutine convolve(n, sp)
-    implicit none
-    integer :: n, ii, jj, w0, w1, ww, npsf2, ss
-    real(8) :: sp(0:3, n), res(n), psfsum
-
-
-    if(.not. allocated(psf)) return
-
-    npsf2 = npsf/2
-
-    do ss = 0,3
-       do ww = 1, n
-          w0 = max(ww - npsf2, 1)
-          w1 = min(ww + npsf2, n)
-          ii = w0 - (ww - npsf2)
-          jj = (ww + npsf2) - w1       
-          res(ww) = sum(psf(1+ii:npsf-jj)*sp(ss,w0:w1)) / sum(psf(1+ii:npsf-jj))
-       end do
-       sp(ss,:) = res(:)
-    end do
-
-  end subroutine convolve
-
-
 
 
 end module synth
