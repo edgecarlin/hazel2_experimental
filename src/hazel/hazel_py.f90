@@ -202,8 +202,10 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
 !    real(c_double), intent(in), dimension(nl,3,nz) :: rho
     real(c_double), intent(in), dimension(nl,nz,4) :: eps,eta
     real(c_double), intent(in), dimension(nl,nz,3) :: rho
-    real(c_double), intent(in), dimension(nl,4) :: stkIn !combine stkIn and stkOut in one in-out var
-    real(c_double), intent(out), dimension(nl,4) :: stkOut
+    real(c_double), intent(in), dimension(4,nl) :: stkIn !combine stkIn and stkOut in one in-out var
+    real(c_double), intent(out), dimension(4,nl) :: stkOut
+    !real(c_double), intent(in), dimension(nl,4) :: stkIn !combine stkIn and stkOut in one in-out var
+    !real(c_double), intent(out), dimension(nl,4) :: stkOut
     integer(c_int), intent(out) :: error
     !avoid setting eeini or othe var here, it will be remembered with attr save between calls to Hazel from Python
     integer ::  kk, kz, count, rate,ii, ee, eeini 

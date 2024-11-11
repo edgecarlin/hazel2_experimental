@@ -91,10 +91,11 @@ def _direct_synthesis(int nl=128, int nz=1,int nsteps=1,int dn=dni,
 	ar[double,ndim=3,mode='fortran'] eps=zeros((128,100,4), order='F'), 
 	ar[double,ndim=3,mode='fortran'] eta=zeros((128,100,4), order='F'),
 	ar[double,ndim=3,mode='fortran'] rho=zeros((128,100,3), order='F'),
-	ar[double,ndim=2,mode='fortran'] stkIn=zeros((128,4), order='F') ):
+	ar[double,ndim=2,mode='fortran'] stkIn=zeros((4,128), order='F') ):
+	#ar[double,ndim=2,mode='fortran'] stkIn=zeros((128,4), order='F') ):
 
 	cdef:		
-		ar[double,ndim=2,mode='fortran'] stkOut = empty((nl,4), order='F') #this IS mode='fortran'
+		ar[double,ndim=2,mode='fortran'] stkOut = empty((4,nl), order='F') #this IS mode='fortran'
 		int error
 
 	c_direct_synthesis(&nl, &nz, &nsteps, &dn, &method, &ds[0], 

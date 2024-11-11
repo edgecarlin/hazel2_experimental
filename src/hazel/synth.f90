@@ -5,9 +5,6 @@ use rt_coef
 !USE OMP_LIB
 implicit none
   
-!EDGAR: PSF convolution has been removed because it makes no sense to 
-!apply it during the radiative transfer, but only once on the result
-!,which is done in Python. 
 contains
 
 !subroutine Magnus_FormSol_1(stoks,nl,ds,epI,epQ,epU,epV,etI,etQ,etU,etV,roQ,roU,roV)
@@ -41,11 +38,12 @@ contains
     !Integration of optical coefficients alog the ray
             tau(:)=MATMUL(etaZ(:,:,1),pkpipp)
             do kk=1,3  !go from (nw,nz,nquv) to (nw,nquv)
-            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp)!minus sign for -L 
-            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)!minus sign for -L 
+            alfa(:,kk) = MATMUL(etaZ(:,:,kk+1),pkpipp)
+            beta(:,kk) = MATMUL(roZ(:,:,kk),pkpipp)
             emis(:,kk) = MATMUL(epsZ(:,:,kk),pkpipp)
             enddo
             emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
+
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
@@ -89,7 +87,7 @@ contains
                 g2(kk)*fomhat2(1:4,1:4,kk)  
 
                 !try transposing stokes before multiplying and retransposing again or redefine stokes
-                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+                stoks(1:4,kk) = matmul(fevolop(1:4,1:4,kk),stoks(1:4,kk))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
             enddo
         
  end subroutine Magnus_FormSol_1
@@ -221,7 +219,7 @@ contains
                 f2h(kk)*fomhat2(1:4,1:4,kk)
 
                 !try transposing stokes before multiplying and retransposing again or redefine stokes
-                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+                stoks(1:4,kk) = matmul(fevolop(1:4,1:4,kk),stoks(1:4,kk))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
             enddo
 
  end subroutine Magnus_FormSol_2
@@ -260,8 +258,7 @@ contains
             emis(:,kk) = MATMUL(epsZ(:,:,kk),pkpipp)
             enddo
             emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
-
-      !.....................................................................
+    !.....................................................................
         !COULD BE BETTER TO TRANSPOSE HERE ALFA , BETA Y EMISS, AND THUS WORK DIRECTLY IN (4,4,kw)
         !TO AVOID TRANPOSING THE TWO OM MATRICES BELOW WHICH HAVE 16 ELEMENTS EACH
         !OR JUST FILL LORENTZ ALONG WAVELENGTH, NOT ALONG STOKES!
@@ -285,6 +282,7 @@ contains
         !     rr(kw) = dot_product(alfa(:,kw),alfa(:,kw)) -dot_product(beta(:,kw),beta(:,kw))
         !     !do rest of calcualtions here frequcny by frequency
         ! end do
+
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
@@ -293,8 +291,8 @@ contains
                 call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
                 call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
             enddo    !Results are (kw, 4column,4row)
-            !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
             !Most efficient way I have found to exchange dimensions for speeding up last step
+            !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
             !$OMP PARALLEL DO --> try this
             do kk =1,nl
                 do jj=1,4
@@ -366,7 +364,7 @@ contains
                 f2h(kk)*fomhat2(1:4,1:4,kk)  
         
                 !try transposing stokes before multiplying and retransposing again or redefine stokes
-                stoks(kk,1:4) = matmul(fevolop(1:4,1:4,kk),stoks(kk,1:4))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
+                stoks(1:4,kk) = matmul(fevolop(1:4,1:4,kk),stoks(1:4,kk))+matmul(phi1(1:4,1:4,kk),emis(kk,1:4)) 
             enddo
  end subroutine Magnus_FormSol_3
     
@@ -391,9 +389,13 @@ contains
     !****************       
     ! ONLY EMISSIVITY: Accumulation of emission without absorption. Normalize later in Python
     !****************
-        do ii = 1, 4 !we are using stkOut as stkIn incomming boundary condition and updating it
-            stkOut(:,ii) = stkOut(:,ii) + ep(:,1,ii)!the 1 one here is current height 
+        !do ii = 1, 4 !we are using stkOut as stkIn incomming boundary condition and updating it
+        !    stkOut(:,ii) = stkOut(:,ii) + ep(:,1,ii)!the 1 one here is current height 
+        !enddo
+        do w = 1, nl !we are using stkOut as stkIn incomming boundary condition and updating it
+            stkOut(1:4,w) = stkOut(1:4,w) + ep(w,1,1:4)!the 1 one here is current height 
         enddo
+
     endif
     !----------------------------------------------------------------------------------
     if (synthesis_method == 1) then 
@@ -461,7 +463,7 @@ contains
             !StokesM(1:4) = stkIn(w,1:4) !StokesM(1:4) = fin%stokes_boundary(0:3,w)
             !Stokes0 = matmul(O_evol,stkIn(w,1:4)) + matmul(Psi_matrix,source * beta(kz))
             !stkOut(w,:) = Stokes0(:)            !Not efficient:dimensions should be exchanged
-            stkOut(w,:)= matmul(O_evol,stkOut(w,:)) + matmul(Psi_matrix,source)    
+            stkOut(:,w)= matmul(O_evol,stkOut(:,w)) + matmul(Psi_matrix,source)    
             !EDGAR:Are we here creating unnecesary copy?
         enddo
   
@@ -500,7 +502,7 @@ subroutine synth_evolop(nl,ds,eps,eta,rho,stkOut)
             call invert(kappa_star) !kappa_star is now inverted in place instead of doing m1=invert(kappa_star)
             Psi_matrix = matmul(kappa_star, identt4 - O_evol) !m2 = identity - O_evol
             !stkOut(w,:) = Stokes0(:)            !Not efficient:dimensions should be exchanged
-            stkOut(w,:)= matmul(O_evol,stkOut(w,:)) + matmul(Psi_matrix,source)    
+            stkOut(:,w)= matmul(O_evol,stkOut(:,w)) + matmul(Psi_matrix,source)    
         enddo
         
     end subroutine synth_evolop
@@ -530,7 +532,7 @@ subroutine synth_evolop(nl,ds,eps,eta,rho,stkOut)
     ! real(kind=8) :: O_evol(4,4), psi_matrix(4,4)
     ! integer :: i
  
-        call init_psf()
+        !call init_psf()
         error = 0
         
 
@@ -646,7 +648,7 @@ subroutine synth_evolop(nl,ds,eps,eta,rho,stkOut)
     ! JDLCR: init PSF?
     ! It will only be done the first time internally in the function
     !
-        call init_psf()
+        !call init_psf()
 
         error = 0
         
@@ -801,10 +803,13 @@ endif
         
         ! EDGAR:make no sense to convolve before end of RT, avoid this in new versions
         !spectral convolution is in any case considered in Pyhton
-        call convolve(in_fixed%no, output)
+        !call convolve(in_fixed%no, output)
 
     
     end subroutine do_synthesis
+
+
+
 
 
 end module synth

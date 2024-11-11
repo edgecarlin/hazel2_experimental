@@ -1,37 +1,38 @@
-import hazel
-import matplotlib.pyplot as pl
+import hazel as haz
+import matplotlib.pyplot as plt
 import numpy as np
 import sys
-from copy import deepcopy as dcp
-#fn='m1_coeffs_7p.hazexp'
-fn='m1_coeffs_7p_test.hazexp'
-#fn='m1_coeffs_57p.hazexp'
 
-if 1==1:
-	m1 = hazel.ModelRT(atomfile='sodium_hfs.atom',apmosekc='1110')
+#fn='m1_coeffs_7p.hazexp'
+#fn='m1_coeffs_3p_test.hazexp'
+#fn='m1_coeffs_7p_test.hazexp' #sin min T
+fn='m1_coeffs_57p.hazexp'
+#fn='m1_coeffs_27p.hazexp'
+#fn='m1_coeffs_27p_test_2.hazexp'#con min T
+
+if 1==0:
+	m1 = haz.ModelRT(atomfile='sodium_hfs.atom',apmosekc='1110')
 	cdic={'ref frame': 'LOS'}#common to all cells
-	to=m1.add_funcatmos(33,cdic)#,hzlims=[0.,1500.],hztype='parab')#functional atmosphere 
-	m1.add_spectrum('s1', line='5895',wavelength=[5894., 5897., 150], 
+	to=m1.add_funcatmos(57,cdic)#,hzlims=[0.,1500.],hztype='parab')#functional atmosphere 
+	m1.add_spectrum('s1', line='5895',wavelength=[5894., 5897.,150], 
 		topology=to,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
 	#----------------------------------------------------------------------------------
 	dlims={'B1':[350.,100.], 'B2': [89.,90.], 'B3':[44.,49.],\
 		'tau':[14.,0.02],'v':[0.,0.],'deltav':[4.,7.],'a':[0.2,0.1] ,\
 		'j10':[0.01,0.02],'j20f':[1.,1.5],'beta':[1.,1.]} #...'ff':[1,1],'nbar':[1,1]}
 	
-	pkws={'plotit':9,'nps':3,'var':'mono','method':1,'mint':False}
+	#hztype='lin' reused to sample tau linearly.Otherwise it'd be exponentially
+	pkws={'plotit':9,'nps':3,'var':'mono','method':1,'mint':True}#hztype='lin'
 	hz=m1.set_funcatm(dlims,orders=1,**pkws) #set atm pars with given-order function
-	#m1.synthesize(plot='s1',FtS=fn)#frac=True  muAllen=0.9;
-	spe={}
-	line=['-','--','--']
-	for kk,mm in enumerate(['EvolOp','M2']):#,'Trap','M1'
-		m1.synthesize(plot='s1',method=mm,fractional=False,line=line[kk])
-		spe[mm]=dcp(m1.spectrum['s1'].stokes)
+	m1.synthesize('s1',FtS=fn,plot=True)#frac=True  muAllen=0.9;
 else: 
-	m1,des=hazel.readmodel(fn) #,'Emissivity'
-	for mm in ['EvolOp','M1']:m1.synthesize(plot='s1',FtR=fn,method=mm)
-	#m1.mutates('s1', apmosekc='0110')
+	m1,des=haz.readmodel(fn) #,'Emissivity'
+	spe,line,mms={},['-']*4,['EvolOp','Trap','M1','M2']#,line=line[kk])
+	for mm in mms:spe[mm]=m1.synthesize('s1',FtR=fn,method=mm)
 
 m1.exit_hazel()
+#caution:verify it is ok to continue working and calling 
+#synthesize from console after exiting hazel
 
 '''If you call synthesize repeatedly is ok, the new plots will be overplot and no 
 replicant figures will pop up ocuppying memory.
@@ -50,8 +51,11 @@ how these objects behave.'''
 #m2.compare_experiments(m1,'s1')
 
 #m1.plot_coeffs('s1',bwc=1.) #,coefs=['epsv','etai','etaq','etav'],scale=2)
+#m1.plot_coeffs2D('s1',bwc=1.)
+#m1.plot_coeffs2D('s1',bwc=1.,figsize=(10,9),ofile='saved_data/figs/coeffs2D_test.pdf')
 
 #EXAMPLES MUTATES:
+#m1.mutates('s1', apmosekc='0110')
 #mo,kk=m1.mutates('s1', apmosekc='1110',B1=[46.,48.],j20f=[1.1,1.5],pkws=pkws)
 #dd={'B1':[1,34.],'j10'=[1,0.02],'method':'Emissivity'}
 #m1.mutates('specname', atmpar1=[layernumber,value],j10=[layernumber,value],apmosekc='value',parsdic=dd)

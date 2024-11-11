@@ -6,7 +6,10 @@ from asciitree.drawing import BoxStyle, BOX_DOUBLE, BOX_BLANK
 import pickle, os
 from timeit import default_timer as timer 
 
-__all__ = ['aft','i0_allen', 'savemodel','readmodel','save_RTcoeffs','read_RTcoeffs','_extract_parameter_cycles', 'isint', 'fvoigt', 'lower_dict_keys', 'show_tree']
+__all__ = ['aft','i0_allen', 'myfmt','cmap_center_adjust',
+'cmap_powerlaw_adjust','cmpadjust','beauty2','savemodel','readmodel',
+'save_RTcoeffs','read_RTcoeffs','_extract_parameter_cycles', 
+'isint', 'fvoigt', 'lower_dict_keys', 'show_tree']
 
 def aft(x):
     return np.asfortranarray(x)
@@ -39,6 +42,127 @@ def i0_allen(wavelength, muAngle):
     
     return (1.0 - u - v + u * muAngle + v * muAngle**2)* i0
 
+'''-------------SOME ROUTINES HELPING PLOTS--------------------------------------'''
+def myfmt(x, pos,numdec=0):  
+    '''EDGAR:this routine makes '0.000..0' to look like 0 and 
+    controls the format as a function of the most signficant decimal'''
+    if x==0:return '0'
+    if np.abs(x)<0.1 and x!=0:
+        fmtstring='{:.'+str(numdec)+'e}'
+        a, b = fmtstring.format(x).split('e')
+        b = int(b)
+        #return r'${} \cdot 10^{{{}}}$'.format(a, b)    
+        return r'${} e^{{{}}}$'.format(a, b)#scientic notation  
+    else:#if the second decimal is close to zero by two units or less this rounds to only 1 decimal prec
+        if np.abs(100*x-10*int(10*x))<2:return '{:1.1f}'.format(x)
+        else:return '{:.2f}'.format(x)
+
+def cmap_powerlaw_adjust(cmap, a):
+    '''
+    returns a new colormap based on the one given
+    but adjusted via power-law:
+    newcmap = oldcmap**a
+    '''
+    import copy
+    from matplotlib import colors
+    if a < 0.:
+        return cmap
+    cdict = copy.copy(cmap._segmentdata)
+    fn = lambda x : (x[0]**a, x[1], x[2])
+    for key in ('red','green','blue'):
+        ll=[]
+        for elem in cdict[key]:ll.append(fn(elem)) #apply the function to each tuple value
+        cdict[key]=sorted(ll)  #order the tuples and store again in the color table
+        #cdict[key] = map(fn, cdict[key])
+        #cdict[key].sort()
+        #assert cdict[key][0]<0 or cdict[key][-1]>1, "Resulting indices extend out of the [0, 1] segment."
+    return colors.LinearSegmentedColormap('colormap',cdict,1024)
+
+def cmap_center_adjust(cmap, center_ratio):
+    '''
+    returns a new colormap based on the one given
+    but adjusted so that the old center point higher
+    (>0.5) or lower (<0.5)
+    '''
+    import math
+    if not (0. < center_ratio) & (center_ratio < 1.):
+        return cmap
+    a = math.log(center_ratio) / math.log(0.5)
+    return cmap_powerlaw_adjust(cmap, a)
+
+def cmpadjust(cmap, range, center):
+    '''
+    cmap_center_point_adjust:
+    converts center to a ratio between 0 and 1 of the
+    range given and calls cmap_center_adjust(). Returns
+    a new adjusted colormap accordingly.
+    '''
+    if not ((range[0] < center) and (center < range[1])):
+        return cmap
+    #print (abs(center - range[0]) / abs(range[1] - range[0]) )
+    new= cmap_center_adjust(cmap,
+        abs(center - range[0]) / abs(range[1] - range[0]))
+    return new
+
+def beauty2(ax,lims,sxy,lpxy,xlab,ylab,tit,xl=0,yl=0,xdiv=0,sym='n',norm='n',
+    xticks='',yticks='',nbx=4,prx='lower',nby=0,pry='lower',xtitex='n'):
+    #font = {'family' : 'normal','weight' : 'bold','size': 22}
+    #if font != {'':}:matplotlib.rc('font', **font)
+    from matplotlib.ticker import MaxNLocator
+
+    if yl==1:ax.set_yscale('log')       
+    if xl==1:ax.set_xscale('log')       
+    if lims!=[]:
+        if lims[0]!=lims[1]:ax.set_xlim(lims[0],lims[1])    
+        if lims[2]!=lims[3]:ax.set_ylim(lims[2],lims[3])
+        if xdiv!=0:ax.xaxis.set_ticks(np.arange(lims[0],lims[1],(lims[1]-lims[0])/xdiv))    
+    if sym=='y':
+        allines=np.array([0,0])
+        for line in ax.lines:allines=np.concatenate((allines,line.get_ydata()))
+        mx=np.max(np.abs(allines))
+        if norm=='y':
+            for line in ax.lines:line.set_ydata(line.get_ydata()/mx)
+            mx=1.0
+        ax.set_ylim(-mx,mx)
+
+    ax.tick_params(axis='y',pad=lpxy[1])
+    if ylab!='':
+        ax.set_ylabel(ylab,size=sxy[0],labelpad=lpxy[1])
+        
+    ax.tick_params(axis='x',pad=lpxy[0])
+    if xlab!='':
+        ax.set_xlabel(xlab,size=sxy[0],labelpad=lpxy[0])
+        
+    if tit!='':
+        ax.set_title(tit,size=sxy[2])
+        ttt=ax.title
+        ttt.set_position([.5, 0.99])
+    if sxy[1]!=0:
+        for elem in [ax.xaxis,ax.yaxis]:elem.set_tick_params(which='major',labelsize=sxy[1])
+
+    if nbx!=0:ax.xaxis.set_major_locator( MaxNLocator(nbins = nbx, prune = prx) )
+    if nby!=0:ax.yaxis.set_major_locator( MaxNLocator(nbins = nby, prune = pry) )
+
+    if xtitex=='y':  #ticks are literally text#
+        xticktex=xticks
+        xticks=[float(val) for val in xticks]
+
+    if xticks!='' and xticks!='no':ax.set_xticks(xticks)# ,fontsize=9)
+    if yticks!='' and yticks!='no':ax.set_yticks(yticks)# ,fontsize=9)
+    
+    if xtitex=='y':ax.set_xticklabels(xticktex)
+    if xticks=='no':
+        labels = [item.get_text() for item in ax.get_xticklabels()]
+        ax.set_xticklabels(['']*len(labels))
+        ax.set_xticks([])
+    
+    if yticks=='no':
+        labels = [item.get_text() for item in ax.get_yticklabels()]
+        ax.set_yticklabels(['']*len(labels))
+        ax.set_yticks([])
+    return ax
+
+'''..................................................................'''
 
 ''' Place here saving/restoring routines to access them without need of loading a model'''
 mydir='saved_data/'
@@ -59,6 +183,7 @@ def readmodel(fname,dir=mydir):
         model_atmdic_desc_list = pickle.load(fi)
     end=timer()
     print("Read in {0:{pp}} s.\n".format(timer()-start,pp='11.4f'))
+
     return model_atmdic_desc_list
 
 def save_RTcoeffs(mm,sp,dlims,fname,description='Add a description',dir=mydir):

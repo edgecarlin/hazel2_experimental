@@ -1,17 +1,18 @@
 from hazel.chromosphere import Hazel_atmosphere
-from hazel.photosphere import SIR_atmosphere
+#from hazel.photosphere import SIR_atmosphere
 from hazel.parametric import Parametric_atmosphere
 from hazel.stray import Straylight_atmosphere
 from hazel.configuration import Configuration
 from hazel.io import Generic_output_file
 #from collections import OrderedDict
-from hazel.codes import hazel_code, sir_code
+from hazel.codes import hazel_code#, sir_code
 from hazel.spectrum import Spectrum
 from hazel.transforms import transformed_to_physical, physical_to_transformed, jacobian_transformation
 from hazel.util import i0_allen, aft
 import hazel.util
 import numpy as np
-import copy
+#import copy
+from copy import deepcopy as dcp
 import os,sys
 from pathlib import Path
 #import scipy.stats
@@ -25,6 +26,7 @@ import matplotlib.pyplot as plt #EDGAR: Im placing plotting routines here, but i
 from timeit import default_timer as timer
 
 labdic = {'z1':r'$\mathrm{z \, [Mm]}$',
+        'pointlos':r'$\mathrm{Point \quad along \quad ray}$',
         'tt':r'$\mathrm{T\,[kK]}$','tit':r'$\mathrm{Temperature}$',
         'vdop':r'$\mathrm{V^{dop}_z \,[D.u.]}$',
         'b':r'$\mathrm{|B| \,[G]}$','tb':r'$\mathrm{\theta_B \,[Degrees]}$',
@@ -37,7 +39,8 @@ labdic = {'z1':r'$\mathrm{z \, [Mm]}$',
         'epsi':r'$\mathrm{\epsilon_I}$','epsq':r'$\mathrm{\epsilon_Q}$','epsu':r'$\mathrm{\epsilon_U}$',
         'epsv':r'$\mathrm{\epsilon_V}$','etai':r'$\mathrm{\eta_I}$','etaq':r'$\mathrm{\eta_Q}$',
         'etau':r'$\mathrm{\eta_U}$','etav':r'$\mathrm{\eta_V}$','rhoq':r'$\mathrm{\rho_Q}$',
-        'rhou':r'$\mathrm{\rho_U}$','rhov':r'$\mathrm{\rho_V}$'
+        'rhou':r'$\mathrm{\rho_U}$','rhov':r'$\mathrm{\rho_V}$',
+        'S_I':r'$\mathrm{S_I=\epsilon_I/\eta_I}$'
         }
 
 
@@ -140,11 +143,14 @@ class ModelRT(object):
 
         self.plotit=plotit
         self.plotscale=3
-        #Set up figures and axes: stokes,optical coeffs,mutations,atmosphere 
+        #Set up figures and axes: stokes,optical coeffs,mutations,atmosphere ,coeffs2D
         self.labelf1,self.labelf2,self.labelf3,self.labelf4='1','2','3','4'
+        self.labelf5='5'
         self.f1,self.f2,self.f3,self.f4=None,None,None,None
+        self.f5=None
         self.ax1,self.ax2,self.ax3,self.ax4= None,None,None,None
-        
+        self.ax5=None
+
         self.lock_fractional=None
 
         #synthesis methods to be implemented
@@ -303,7 +309,7 @@ class ModelRT(object):
         if fignum==self.labelf4:#ready to be usd but not yet in use
             self.f4, self.ax4 = plt.subplots(nrows=xy[0], ncols=xy[1],figsize=(pscale*2,pscale*2.5),label=self.labelf4)  
             self.ax4 = self.ax4.flatten()
-
+        if fignum==self.labelf5:tbd=1
         #positioning of the figures pending:
         #start_x, start_y, dx, dy = self.f1.figbbox.extents
         #self.move_figure(self.f1,505,500)
@@ -327,13 +333,13 @@ class ModelRT(object):
         #we dont use manager.close() but manager.destroy() because destroy allows reshowing
         #but close dont. To definitely close the figure use remove_fig() below.
         
-        ptrs=[self.f1,self.f2,self.f3,self.f4]
+        ptrs=[self.f1,self.f2,self.f3,self.f4,self.f5]
         
         if fig=='all':
             for fig in ptrs:
                 if fig is not None:self.reshow_this(fig)   
         else:
-            for elem in ['1','2','3','4']: 
+            for elem in ['1','2','3','4','5']: 
                 if fig==elem:fig=ptrs[int(elem)-1]
 
             self.reshow_this(fig)
@@ -361,6 +367,19 @@ class ModelRT(object):
             plt.close(getattr(obj,fig))#plt.close(fig)
             setattr(obj,fig, None) #equivalent to obj.fig = None 
 
+    def set_fontsize(self,fig,fontsize):
+        """
+        For each text object of a figure fig, set the font size to fontsize
+        """
+        def match(artist):
+            return artist.__module__ == "matplotlib.text"
+
+        for textobj in fig.findobj(match=match):
+            textobj.set_fontsize(fontsize)
+
+    def rescale_figure(self,fig, size):
+        self.set_fontsize(fig,size)
+        fig.set_size_inches(size, size, forward=True)
 
     def fractional_polarization(self,sp,scale=3,tf=4,ax=None,lab=['iic','qi','ui','vi']): 
         '''
@@ -396,18 +415,22 @@ class ModelRT(object):
         return 
 
 
-    def plot_stokes(self,sp,scale=3,tf=2,fractional=False,lab=None,line='-'): 
+    def plot_stokes(self,sp,scale=3,tf=2,fractional=False,
+        lab=None,line='-',show='y',ofile=''): 
         '''
-        Routine called by synthesize to plot stokes profiles either fractional 
-        or normalized to continuum 
+        Plot stokes profiles, fractional or normalized to continuum 
         '''
         if fractional:lab=['iic','qi','ui','vi']
         else:lab=['iic','qic','uic','vic']
         
         if type(sp) is not hazel.spectrum.Spectrum:sp=self.spectrum[sp]
+        lamax=sp.wavelength_axis
+        l0=sp.multiplets[self.chromospheres[0].active_line]
+        methodlab=self.methods_dicT[self.synmethod]
         
         if self.ax1 is None:
             self.setup_set_figure(self.labelf1,scale=scale,tf=tf)
+            hh,ll=(),()
             '''
             pscale=self.plotscale
             if scale!=pscale:pscale=scale
@@ -417,20 +440,27 @@ class ModelRT(object):
             '''
         else:#if the window was created but was closed reshow it 
             if self.f1.canvas.manager.get_window_title() is None:self.reshow(self.f1)
+            hh, ll = self.ax1[0].get_legend_handles_labels()
 
         for i in range(4): 
             if i ==0:
-                self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:],line)
+                lx,=self.ax1[i].plot(lamax, sp.stokes[i,:],line,label=methodlab)
+                self.ax1[0].legend(loc=(0.05,0.25))    
             else:
-                if fractional:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:]/sp.stokes[0,:],line)
-                else:self.ax1[i].plot(sp.wavelength_axis, sp.stokes[i,:],line)
+                if fractional:self.ax1[i].plot(lamax, sp.stokes[i,:]/sp.stokes[0,:],line)
+                else:self.ax1[i].plot(lamax, sp.stokes[i,:],line)
+
+            for pos in [l0-0.5,l0,l0+0.5]:self.ax1[i].axvline(x=pos,color='k',ls='--',lw=0.7)
             
             self.ax1[i].set_title(mylab(lab[i]))#,size=8 + 0.7*pscale)
-            if i>1:self.ax1[i].set_xlabel(mylab('xx'))#,size=8 +0.7*pscale)#,labelpad=lp)
+            if i>1:self.ax1[i].set_xlabel(mylab('xx'))#,size=8 +0.7*pscale)#,labelpad=lp)        
         
-        plt.tight_layout()
-        plt.show()
-        
+        #self.ax1[0].legend(tuple(hh)+(lx,),tuple(ll)+(methodlab,) , loc=(0.05,0.1), bbox_to_anchor=(0.1, 0.1))
+
+        self.f1.tight_layout()
+        if show=='y':self.f1.show()
+        if (ofile != ''):self.f1.savefig(ofile+'.pdf',bbox_inches='tight',pad_inches=0.01,dpi=300)
+
         return 
 
 
@@ -480,24 +510,100 @@ class ModelRT(object):
             #    ' ':np.zeros_like(sp.nwvl),'rhoq':sp.rtrho[:,0,:],'rhou':sp.rtrho[:,1,:],'rhov':sp.rtrho[:,2,:]}
 
             self.coed2={'eps':sp.rteps,'etas':sp.rteta,'rhos':sp.rtrho}
-        #return self.coed1,self.coed2
+        #return self.coed1,self.coed2    
 
-    def plot_coeffs2D(self,sp,coefs=None,par=None,ats=None,scale=2,figsize=None,tf=4):
-        if type(sp) is not hazel.spectrum.Spectrum:sp=self.spectrum[sp]    
-        if ats is None:ats=self.atms_in_spectrum[sp.name]#self.atms_in_spectrum[sp.name] --->. [['c0'], ['c1','c2']]
-        labs=[]
-        for n, order in enumerate(self.atms_in_spectrum[sp.name] ): #n run layers along the ray
-            for k, atm_name in enumerate(order):  #k runs subpixels of topologies c1+c2                                                  
-                labs.append(atm_name)#get name of atmospheres in sp
-        lines=[]
-        #----------------------------------
-        if self.built_coeffs is None:self.build_coeffs(sp) 
+#===========================================================
+    def plot_coeffs2D(self,sp,coefs=None,par=None,inter='nearest',
+        ats=None,scale=2,figsize=None,tf=4,
+        aa='-0.5',bb='0.5',bwc=None,cmap1='terrain_r',cmap2='bwr',
+        show='y',ofile=''):
+
+        from hazel import cmpadjust as cmpa 
+        from hazel import beauty2,myfmt
+        from matplotlib.ticker import FuncFormatter as mtf
+        from matplotlib import colormaps as mplcm
+        from matplotlib.ticker import MaxNLocator
+
+        #-----------GET spectrum data-----------------------        
+        if type(sp) is not hazel.spectrum.Spectrum:sp=self.spectrum[sp]            
+        if self.coed1 is None:self.build_coeffs(sp) 
         cd,cd2=self.coed1,self.coed2 #cds={**cd, **cd2} #merge the two dictionaries
+        S_I=cd['epsi']/cd['etai']
+        #----------------------------------------------------        
 
-        pscale=self.setup_set_figure('dummy',scale=scale,tf=tf)
+        lamax=sp.wavelength_axis
+        l0=sp.multiplets[self.chromospheres[0].active_line]
+        bwcmax=2.0*(lamax[-1]-l0)
+        if (bwc is not None) and (bwc<bwcmax):
+            xb = (np.abs(lamax - (l0-bwc/2.) ) ).argmin()
+            xt = (np.abs(lamax - (l0+bwc/2.)) ).argmin()
+        else:
+            xb = (np.abs(lamax - (l0-bwcmax/2.) ) ).argmin()
+            xt=-1
+        lamax = lamax - l0
 
-        #TBD..............
+        #if self.ax5 is None: #pending:set self.f5
+        #    pscale=self.setup_set_figure(self.labelf5,scale=scale,tf=tf)    
+        pscale=self.setup_set_figure('f5dummy',scale=scale,tf=tf)
+        cm1 = mplcm[cmap1]
+        cm2 = mplcm[cmap2]
+        cm3=cm2
+        
+        Np=self.n_chromospheres
 
+        kwargs = {'interpolation':inter,'aspect':'auto', \
+        'origin':'lower','extent':(lamax[xb],lamax[xt],0.5,Np+0.5)}
+
+        if coefs is None:#default    
+            if figsize is not None:fs=figsize
+            else:fs=(pscale*4,pscale*3)
+            
+            lab=['epsi','epsq','epsu','epsv','etai','etaq','etau','etav','S_I','rhoq','rhou','rhov']
+
+            alp=[1.,1.,1.] #make plots of MO terms transparent when not used in the calculation 
+            if self.apmosekcl[1]==0:
+                alp[2],cm3=0.3, mpl.colormaps['gray']
+
+            f5, ax = plt.subplots(nrows=3, ncols=4,sharex=True, sharey=True,
+                figsize=fs,label=self.labelf5)
+
+            f5.subplots_adjust(left=0.15, wspace=0.05,hspace=0.04,right=0.99,bottom=0.02)
+            
+            for cc,coef in enumerate(lab):
+                row,col=np.divmod(cc,4)            
+                if coef!='S_I':dat=cd[coef][xb:xt,:].T
+                else:dat=S_I[xb:xt,:].T
+
+                #select color map
+                if col==0:cmxy=cm1
+                else:
+                    if row!=2:cmxy=cm2
+                    else:cmxy=cm3
+                mymap=cmpa(cmxy,[dat.min(),dat.max()],0.0) #put the 0 in middle of scale
+
+                #plot data
+                im=ax[row,col].imshow(dat,alpha=alp[row],cmap=mymap,**kwargs)
+            
+                #Arrange axes and ticks labels
+                beauty2(ax[row,col],[],[8,8,10],[0.2,0.2],'','','',nby=4,nbx=4,pry='both')
+                #beauty2(ax[ii],lims,sxy,lpxy,xlabs[ii],ylabs[ii],titlabs[ii],nby=4,nbx=10,pry='lower')
+                #force integer tick labels
+                ax[row,col].yaxis.set_major_locator(MaxNLocator(integer=True))
+                #plt.yticks(list(np.arange(1,Np+1)))
+                plt.yticks([1,(Np+1)//2,Np])
+                if row==2:ax[row,col].set_xlabel(mylab('xx'))
+                if col==0:ax[row,col].set_ylabel(mylab('pointlos'))
+                ax[row,col].grid(axis='x',color='k',linestyle='--')
+                
+                #plot colorbars
+                cbax=f5.colorbar(im,ax=ax[row,col], label=mylab(coef),location='top',
+                 pad=0.02,shrink=0.95,aspect=25,format=mtf(myfmt))#,ticks=loca)
+                cbax.ax.set_xlabel(mylab(coef),fontsize=12,labelpad=4,weight='heavy')
+                cbax.ax.tick_params(labelsize=7,pad=-1)
+
+        f5.tight_layout()
+        if show=='y':f5.show()
+        if (ofile != ''):f5.savefig(ofile+'.pdf',bbox_inches='tight',pad_inches=0.01,dpi=300)
 
     def plot_coeffs(self,sp,bwc=None,coefs=None,par=None,ats=None,scale=2,figsize=None,tf=4):
         '''bwc: bandwidth around center of line to be plot in Angstroms'''
@@ -785,8 +891,8 @@ class ModelRT(object):
 
         #now that parsdic is complete, its fields are those that will be mutated 
         #and we collect them those that are in atmpars below in mutating_keys list
-
-        newmo= copy.deepcopy(self) #here we are already copying the spectrum objects inside spectrum
+        newmo= dcp(self) #deepcopy
+        #newmo= copy.deepcopy(self) #here we are already copying the spectrum objects inside spectrum
         
         '''kill ghost figures f1,... appearing when replicating with deep copy the model object.
         otherwise, ugly replicants of the figures in self.fx pops up when calling again a plt.show''' 
@@ -902,7 +1008,7 @@ class ModelRT(object):
         newspec.rteps[:]=0.0 
 
         #Synthesize the new spectrum in original model FROM the new model object:
-        newmo.synthesize(method=self.methods_dicT[newmo.synmethod],muAllen=newmo.muAllen,obj=self)
+        newmo.synthesize(newspecname,method=self.methods_dicT[newmo.synmethod],muAllen=newmo.muAllen,obj=self,plot=False)
         if (self.verbose >= 1):self.logger.info('Spectrum {0} has mutated.'.format(spec.name))
         
         if (compare is True):self.compare_mutation(spec,newspec,fractional=frac) 
@@ -1066,6 +1172,18 @@ class ModelRT(object):
         self.LINES = ff.readlines()
         ff.close()
 
+        '''Check atmosphere composition and filling factors(deactivated yet)'''
+        for k, v in self.spectrum.items():#k is name of the spectrum or spectral region
+            for n, order in enumerate(self.atms_in_spectrum[k] ): #n run layers along the ray
+                for subp, atm in enumerate(order):  #subp runs subpixels of topologies c1+c2                              
+                    if (subp != 0):
+                        raise Exception("WARNING: Subpixel components are not yet allowed in this Model version.")
+            #when subpixel is allowed we check filling factors
+            #here, in setup, not during calculations
+            #not needed because above exception will abort if filling factors play a role
+            self.check_filling_factors(k) 
+
+
         #if (self.verbose >= 1):#print number of Hazel chromospheres/slabs
         #    self.logger.info('N_chromospheres',self.n_chromospheres)
 
@@ -1073,6 +1191,7 @@ class ModelRT(object):
             #self.setup_set_figure(self.labelf1) #self.fig and self.ax are created here    
             #return f,ax
         
+
 
     def open_output(self):
         self.output_handler = Generic_output_file(self.output_file)        
@@ -1251,7 +1370,7 @@ class ModelRT(object):
         if (self.verbose >= 1):self.logger.info("Activating lines in atmospheres")
         for k, atm in self.atmospheres.items():            
             atm.add_active_line(spectrum=self.spectrum[name], wvl_range=np.array(wvl_range))
-                        
+                 
 
         return self.spectrum[name]
 
@@ -1519,6 +1638,15 @@ class ModelRT(object):
         We can directly work with this function from main program
         nps=2 is below hardcoded for monotonic method
         '''
+        def plot_poly_grid(ax,xx,xps,yps):
+            #this method works best with nps=2 to deliver monotonic order-N polyn. functions 
+            with warnings.catch_warnings():#avoid printing polyfit  warnings
+                warnings.simplefilter("ignore")
+                for order in [1,2,3,4]:
+                    myfx = np.poly1d(np.polyfit(xps, yps, order))
+                    ax.plot(xx, myfx(xx), '-')
+            return ax
+
         #fig = plt.figure()
         #ax = fig.gca()
         npoints=30
@@ -1533,34 +1661,31 @@ class ModelRT(object):
             #creates few nps points contained between limits xpl 
             xps = np.linspace(xpl[0],xpl[1],nps)
             yps=self.get_yps(xps,ypl,method=method,nps=nps)#method 2 is preferred by default
-
             #creates a polynomial function fitting previous points and passing
             # through given fixed points
             for order in [1,2,3,4]:
                 myfx=self.fix_point_polyfit_fx(order, xps , yps, xf, yf)
                 ax.plot(xx, myfx(xx), '-')
         if var == 'mono':
-            #this method works best with nps=2 to deliver monotonic order-N polyn. functions 
             xps = np.linspace(xpl[0],xpl[1],2)  #here only 2 points to achieve monotonicity
             yps=self.get_yps(xps,ypl,method=2)#method 2 preferred by default
-            with warnings.catch_warnings():#avoid printing polyfit  warnings
-                warnings.simplefilter("ignore")
-                for order in [1,2,3,4]:
-                    myfx = np.poly1d(np.polyfit(xps, yps, order))
-                    ax.plot(xx, myfx(xx), '-')
+            ax=plot_poly_grid(ax,xx,xps,yps)
         if var == 'mint':#bump mimicking minimum of T
             xps = np.linspace(xpl[0],xpl[1],nps)
             yps=self.get_yps(xps,ypl,method=method,nps=nps)#method 2 is preferred by default
             for order in [1,2,3,4]:
                 myfx=self.fix_point_polyfit_fx(order, xps , yps, xf, yf)         
                 ax.plot(xx, myfx(xx), '-')
-
         if var == 'exp':   
-            xps,yps=[],[]
+            xps = np.linspace(xpl[0],xpl[1],2)  #here only 2 points to achieve monotonicity
+            yps=self.get_yps(xps,ypl,method=2)#method 2 preferred by default
+            plot_poly_grid(ax,xx,xps,yps)
+            #xps,yps=[],[]
             myfx=exp_2points(xx,xpl,ypl)#exponential for tau       
             ax.plot(xx, myfx, '-')
             #xps,yps,myfx=self.get_exp3points(xx,xpl,ypl,nps=3)#ypl is dlims['tau']
             #ax.plot(xx, myfx, '-')
+            
 
         ax.plot(xps, yps, 'bo')
         ax.plot(xf, yf, 'ro')
@@ -1675,7 +1800,9 @@ class ModelRT(object):
                     p2D[ksel[kk],:]=dlims[key][0]
                     if (orders[ksel[kk]]>0)&(self.verbose >= 1):warnings.warn("The quantity {0} is being forced to keep constant values.".format(key))
                 else:
-                    if (key=='tau') or (key=='deltav' and pkws['mint']==True):#create exponential or minT functions
+                    #default is hztype='lin', which makes tau to be sampled linearly. 
+                    #Otherwise it would be sampled exponentially
+                    if (key=='tau' and hztype!='lin') or (key=='deltav' and pkws['mint']==True):#create exponential or minT functions
                         p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells,var=key)
                     else:#dtau is not exponential but follows the given polinomial order
                         p2D[ksel[kk],:]=self.PolyFx(hz,[dlims[key][0],dlims[key][1]],order=orders[ksel[kk]],npoints=Ncells)
@@ -1853,15 +1980,15 @@ class ModelRT(object):
             self.logger.info('Setting NLTE for Ca II 8542 A to {0}'.format(self.use_nlte))
 
 
-    def synthesize(self, FtS='', FtR='',method=None,muAllen=1.0,frac=None,fractional=False,
-        saveto='',fromfile='',obj=None,plot=None,ax=None,line='-'):
+    def synthesize(self, spname,FtS='', FtR='',method=None,muAllen=1.0,frac=False,fractional=False,
+        saveto='',fromfile='',obj=None,plot=True,ax=None,line='-'):
         #i0=None,boundary=None,obj=None,plot=None,ax=None):
         """
-        Synthesize atmospheres
+        Synthesize this spectrum
 
         Returns
         -------
-        None
+        Independent (deep)copy of resulting Stokes spectrum
 
         """
         if frac is True:fractional=frac #abreviated keyword to fractional
@@ -1869,25 +1996,24 @@ class ModelRT(object):
         self.muAllen=muAllen #mu where Allen continuum shall be taken for normalizing Stokes output 
 
         if (method is not None) and (method != self.methods_dicT[self.synmethod]):
-            #print(method,self.methods_dicT[self.synmethod])
             print('Changing synthesis method to {0}.'.format(method))
             self.check_method(method)
             self.synmethod=self.methods_dicS[method]#pass from string label to number label and update self
 
+        #for k, v in self.spectrum.items():#k is name of the spectrum or spectral region
+        if spname not in self.spectrum:
+            print('{0} is not a spectrum in this model. Stopping.'.format(spname))                 
+            sys.exit()
+        else:
+            k,v=spname,self.spectrum[spname]
 
-        for k, v in self.spectrum.items():#k is name of the spectrum or spectral region
-            #EDGAR: check for composed layers, should be done during setup, not in run time 
-            self.check_filling_factors(k)
-                     
-            for n, order in enumerate(self.atms_in_spectrum[k] ): #n run layers along the ray
-                for subp, atm in enumerate(order):  #subp runs subpixels of topologies c1+c2                              
-                    if (subp != 0):raise Exception("WARNING: Subpixel components are not yet allowed in this Model version.")
-
-            if (FtR == '') and np.all(self.spectrum[k].rteps==0.0):    #if (fromfile == ''):     ...,FtS=saveto)
-                self.solve_SEE_and_rtcoeffs(self.spectrum[k],FtS=FtS)
-            else:
-                if self.spectrum[k].rteps is None:print("No opt. coeffs. available: load file or activate SEE.")
-
+            if (FtR == ''):
+                if np.all(self.spectrum[k].rteps==0.0):    #if (fromfile == ''):     ...,FtS=saveto)
+                    self.solve_SEE_and_rtcoeffs(self.spectrum[k],FtS=FtS)
+                #else:if self.spectrum[k].rteps is None:print("No opt. coeffs. available: load file or activate SEE.")
+            else:#if reading object model from file manage proportions of fig4
+                self.rescale_figure(self.f4, 5.)
+            
             self.synthesize_ray(self.spectrum[k], self.synmethod)
             #never call synthesize with fractional=True to avoid storing the fractional
             #pol. in spectrum to avoid possible mistakes. Fract. pol only shown in plots
@@ -1903,10 +2029,13 @@ class ModelRT(object):
                 for i in range(4):                
                     v.stokes_lr[i,:] = np.interp(v.wavelength_axis_lr, v.wavelength_axis, v.stokes[i,:])                    
 
-            if (plot is not None):#plot called inside loops
-                if (k == plot):self.plot_stokes(plot,fractional=fractional,line=line)
-            else:#plot is None because synthesize routine was called without intention of plotting or from mutation
-                if obj is None:TBD=1                
+            if (plot is True):#plot called inside loops
+                self.plot_stokes(k,fractional=fractional,line=line)
+            else:#plot is False because synthesize routine was called without intention of plotting or from mutation
+                if obj is None:TBD=1   
+
+            #return independent (deep)copy,not just a pointer          
+            return dcp(v.stokes)
                 
     def solve_SEE_and_rtcoeffs(self,sp,FtS=None):
         start = timer()
@@ -2045,11 +2174,11 @@ class ModelRT(object):
         sp.rteps[:,:,:]=self.pars2D[6,np.newaxis,:,np.newaxis]*sp.rteps[:,:,:] #beta * eps   (kw,kz,kstokes)
         #OLD
         #stokes_out, error=hazel_code._direct_synthesis(xt-xb,self.n_chromospheres,nsteps,dn,method,ds,
-        #    aft(sp.rteps.T),aft(sp.rteta.T),aft(sp.rtrho.T),aft(stokes_out.T)) 
+        #    aft(sp.rteps.T),aft(sp.rteta.T),aft(sp.rtrho.T),aft(stokes_out)) #,aft(stokes_out.T)) 
         #NEW
         stokes_out, error=hazel_code._direct_synthesis(xt-xb,self.n_chromospheres,nsteps,dn,method,ds,
-            aft(sp.rteps),aft(sp.rteta),aft(sp.rtrho),aft(stokes_out.T)) 
-        stokes_out=stokes_out.T 
+            aft(sp.rteps),aft(sp.rteta),aft(sp.rtrho),aft(stokes_out)) #aft(stokes_out.T)) 
+        #stokes_out=stokes_out.T 
         
         print("Ray calculated in {0:{pp}} s.\n".format(timer()-start,pp='11.6f'))
         

@@ -1210,6 +1210,7 @@ contains
             !pi = pp / cip !=1.0/(ci*cip)
             !pk = 3.0 - 1.0 / cip
             !quadrature_weights= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
+            
             quadrature_weights= (delk*0.1666666666666666d0) * [ 3.d0-cipi , pp*cipi , pp ] 
        CASE (2) !2-point trapezoidal
           quadrature_weights= [ds(1) *0.5d0, ds(1) *0.5d0]
@@ -1348,7 +1349,10 @@ contains
     real(kind=8),dimension(nl) :: Chat, Ctil, Shat, Stil,exptau,comfac
 
     real(kind=8),dimension(nl) :: Fptil,OFptil,Fphat,OFphat,aux1,aux2,qqsign
-        
+
+        !the minus sign in exp(-L) is already absorved in the analytical
+        !functions of this subroutine
+
         qqsign = get_signsF1(qq)
 
         !calculate squared roots without sign and add sign later where required
@@ -1363,7 +1367,7 @@ contains
         comfac=exptau/hh
         !Feps=bhat_2/hh     ; OFeps= 1.d0 - Feps
 
-        !Special functions: 
+        !Special functions for Evol op: 
         f1 = comfac*(bhat_2 * Ctil +btil_2*Chat )!f0h !division by hh is made more efficiently in comfac
         fa= -comfac*(bhat*Shat + btil*Stil)  !fa
         fb= qqsign*comfac*(bhat*Stil - btil*Shat) !fb
@@ -1374,7 +1378,7 @@ contains
         Fphat=bhat/tau   ; OFphat= 1.d0/((1.d0 - Fphat*Fphat)*comfac)
         Fptil=btil/tau   ; OFptil= 1.d0/((1.d0 + Fptil*Fptil)*comfac)
        !................................................................... 
-        !CALCULATE PHI_1 and FORMAL INHOMOGENEOUS SOLUTION Carlin, Blanes, & Casas (2024)
+        !Special functions for PHI_1 
         aux1=(1.d0-exptau*(Chat+Fphat*Shat))*OFphat !Ghat
         aux2=(1.d0-exptau*(Ctil-Fptil*Stil))*OFptil !Gtil
 
