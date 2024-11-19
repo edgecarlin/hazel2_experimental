@@ -3,18 +3,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
+#maximum number of atm points hardcoded to 500 in F90
 #fn='m1_coeffs_7p.hazexp'
 #fn='m1_coeffs_3p_test.hazexp'
-#fn='m1_coeffs_7p_test.hazexp' #sin min T
-fn='m1_coeffs_57p.hazexp'
+fn='m1_coeffs_7p_test.hazexp' #sin min T
 #fn='m1_coeffs_27p.hazexp'
+#fn='m1_coeffs_57p.hazexp'
+#fn='m1_coeffs_97p.hazexp'
+#fn='m1_coeffs_127p.hazexp'
 #fn='m1_coeffs_27p_test_2.hazexp'#con min T
 
 if 1==0:
 	m1 = haz.ModelRT(atomfile='sodium_hfs.atom',apmosekc='1110')
 	cdic={'ref frame': 'LOS'}#common to all cells
-	to=m1.add_funcatmos(57,cdic)#,hzlims=[0.,1500.],hztype='parab')#functional atmosphere 
-	m1.add_spectrum('s1', line='5895',wavelength=[5894., 5897.,150], 
+	to=m1.add_funcatmos(27,cdic)#,hzlims=[0.,1500.],hztype='parab')#functional atmosphere 
+	m1.add_spectrum('s1', line='5895',wavelength=[5894., 5897.,350], 
 		topology=to,los=[0.,0.,90.],boundary=[1,0,0,0])	;m1.setup() 
 	#----------------------------------------------------------------------------------
 	dlims={'B1':[350.,100.], 'B2': [89.,90.], 'B3':[44.,49.],\
@@ -22,15 +25,20 @@ if 1==0:
 		'j10':[0.01,0.02],'j20f':[1.,1.5],'beta':[1.,1.]} #...'ff':[1,1],'nbar':[1,1]}
 	
 	#hztype='lin' reused to sample tau linearly.Otherwise it'd be exponentially
-	pkws={'plotit':9,'nps':3,'var':'mono','method':1,'mint':True}#hztype='lin'
+	pkws={'plotit':9,'nps':3,'var':'mono','method':1,'mint':False}#hztype='lin'
 	hz=m1.set_funcatm(dlims,orders=1,**pkws) #set atm pars with given-order function
 	m1.synthesize('s1',FtS=fn,plot=True)#frac=True  muAllen=0.9;
 else: 
 	m1,des=haz.readmodel(fn) #,'Emissivity'
-	spe,line,mms={},['-']*4,['EvolOp','Trap','M1','M2']#,line=line[kk])
-	for mm in mms:spe[mm]=m1.synthesize('s1',FtR=fn,method=mm)
+	spe,mms={},['EvolOp','M0','Mtrap','M1','M2','Delo1','Delo15','Delo2','Trap']#,line=line[kk])
+	line=['--']*len(mms)	;line[4]='-'
+	for kk,mm in enumerate(mms):
+		spe[mm]=m1.synthesize('s1',FtR=fn,method=mm,line=line[kk])
+
+#m2=m1.mutates('s1', )
 
 m1.exit_hazel()
+
 #caution:verify it is ok to continue working and calling 
 #synthesize from console after exiting hazel
 

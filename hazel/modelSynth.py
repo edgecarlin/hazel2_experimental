@@ -154,8 +154,10 @@ class ModelRT(object):
         self.lock_fractional=None
 
         #synthesis methods to be implemented
-        self.methods_dicT={0:'Emissivity',1:'Trap',11:'Delo1',2:'Delo2',3:'Hermite',4:'Bezier',5:'EvolOp',6:'M1',7:'M2'} 
-        self.methods_dicS={'Emissivity':0,'Trap':1,'Delo1':11,'Delo2':2,'Hermite':3,'Bezier':4,'EvolOp':5,'M1':6,'M2':7} 
+        self.methods_dicT={0:'Emissivity',1:'Trap',11:'Delo1',15:'Delo15',2:'Delo2',\
+        3:'Hermite',4:'Bezier',5:'EvolOp',6:'M1',7:'M0',8:'Mtrap',9:'M2'}
+        self.methods_dicS={'Emissivity':0,'Trap':1,'Delo1':11,'Delo15':15,'Delo2':2,\
+        'Hermite':3,'Bezier':4,'EvolOp':5,'M1':6,'M0':7,'Mtrap':8,'M2':9} 
         self.methods_list=[ss for ss,tt in self.methods_dicS.items()] #list with only the names
         
         self.synmethod=5 #5 is default and can be changed by add_spectrum and /or by synthesize.
@@ -1524,8 +1526,8 @@ class ModelRT(object):
 
         Explanation: Hazel2 allows for a versatile serial or parallel combination 
         of slabs that can be associated to different spectral lines, heights, filling 
-        factors and topologies for perform radiative trasnfer on them. On the other side,
-        other RT codes work directly to stratified fully discretized atmospheres with many 
+        factors and topologies for performing radiative trasnfer on them. On the other side,
+        other RT codes work directly with stratified fully discretized atmospheres with many 
         points. The function add_funcatmos here is in between these two approaches, 
         pretending to mimick a full atmosphere with several points from serially concatenating
         Hazel atmospheres but yet mantaining a control on the functional variations
@@ -1534,7 +1536,7 @@ class ModelRT(object):
         of each of them (like its labels, or reference frame) become irrelevant or equal
         for the whole piece. The next step would be to directly add a realistic atmosphere
         or convert one to a toy full chromosphere as those here built for Hazel. But for that
-        it we shall need to work  directly with temperature, density, etc.
+        we shall need to work  directly with temperature, density, etc.
 
         '''
         #create list of tags/names for each cell (['c1','c2',...])
@@ -2117,7 +2119,8 @@ class ModelRT(object):
         #mdic={'0':[1,1,nz,0],'1':[2,1,nz-1,-1],'5':[1,1,nz,0],'6':[3,2,nz//2,-1]}  #np,dnfac,nsteps,iepy
         #np,dnfac,nsteps,iepy=mdic[str(method)]       
         #nsteps,remain=np.divmod(self.n_chromospheres,dn) #remain: mod of division
-        mdic={'0':[0,0,nz],'1':[1,1,nz-1],'5':[0,0,nz],'6':[1,2,nz//2],'7':[0,0,nz]} #--->>>>>  eeini,dn, nsteps
+        mdic={'0':[0,0,nz],'1':[1,1,nz-1],'11':[1,1,nz-1],'15':[1,1,nz-1],'2':[1,1,nz-1],\
+        '5':[0,0,nz],'6':[1,2,nz//2],'7':[0,0,nz],'8':[1,1,nz-1],'9':[1,2,nz//2]} #--->>>>>  eeini,dn, nsteps
         eeini,dn,nsteps=mdic[str(method)]       
         return eeini,eeini,dn,nsteps #dn and nsteps only used in direct_synthesis, not affecting older routine 
 

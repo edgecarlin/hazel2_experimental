@@ -1189,6 +1189,19 @@ contains
         enddo
         return 
     end function matmulF3
+
+! CAlculate cross product for all frequencies
+! calling example:   crossp(etaZ(:,z_A,2:4),etaZ(:,z_B,2:4))
+    function crossp(v1, v2)    
+    real(kind=8) :: v1(:,:), v2(:,:), crossprod(size(v1,1),3)
+
+        crossprod(:,1) = -v1(:,3)*v2(:,2) +v1(:,2)*v2(:,3)
+        crossprod(:,2) = v1(:,3)*v2(:,1) -v1(:,1)*v2(:,3)
+        crossprod(:,3) = -v1(:,2)*v2(:,1) +v1(:,1)*v2(:,2)
+    
+        return 
+    end function crossp
+
 ! ---------------------------------------------------------
 ! Return quadrature integration weights for different schemes
 ! ---------------------------------------------------------     
@@ -1211,7 +1224,7 @@ contains
             !pk = 3.0 - 1.0 / cip
             !quadrature_weights= (delk/6.d0) * [ 3.d0-1.d0/cip , pp/cip , pp ] 
             
-            quadrature_weights= (delk*0.1666666666666666d0) * [ 3.d0-cipi , pp*cipi , pp ] 
+            quadrature_weights= (delk*0.1666666666666666d0) * [ 3.d0-pp , pp*cipi , 3.d0-cipi ] 
        CASE (2) !2-point trapezoidal
           quadrature_weights= [ds(1) *0.5d0, ds(1) *0.5d0]
        CASE (1)
@@ -1249,7 +1262,7 @@ contains
     end subroutine fill_absorption_matrix
 
 !----------------------------------------------------------------------------
-! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity 
+! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity*etaI 
 ! Calling it as fill_Lorentz_matrix(lorentz,beta,-alfa) gives directly the 
 ! inverse of propagation matrix, thus avoiding inverting a 4x4 matrix repeatedly
 !------------------------------------------------------------------------------
@@ -1284,7 +1297,7 @@ contains
 !-------
 
 !----------------------------------------------------------------------------
-! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity 
+! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity*etaI 
 ! Calling it as fill_Lorentz_matrix(lorentz,beta,-alfa) gives directly the 
 ! inverse of propagation matrix, thus avoiding inverting a 4x4 matrix repeatedly
 !------------------------------------------------------------------------------
@@ -1393,6 +1406,56 @@ contains
 
 
     end subroutine get_Lorentz_funs
+
+!--------------------------------------------------------------
+! Calculation of Lorentz functions for evol op and transfer matrix phi1
+!--------------------------------------------------------------
+
+    subroutine get_phi1_gs(nl,qq,rr,tau,g1,ga,gb,g2)
+    integer:: nl
+    real(kind=8),dimension(:) :: tau,qq,rr !INTENT(IN)
+    real(kind=8),dimension(:) :: g1,ga,gb,g2!INTENT(OUT)
+
+    real(kind=8),dimension(nl) :: hh,hh_2,bhat_2,bhat,btil_2,btil,dhat,dtil
+    real(kind=8),dimension(nl) :: Chat, Ctil, Shat, Stil,exptau,comfac
+
+    real(kind=8),dimension(nl) :: Fptil,OFptil,Fphat,OFphat,aux1,aux2,qqsign
+
+        !the minus sign in exp(-L) is already absorved in the analytical
+        !functions of this subroutine
+
+        qqsign = get_signsF1(qq)
+
+        !calculate squared roots without sign and add sign later where required
+        hh_2 = rr*rr + qq*qq   ;  hh= DSQRT(hh_2) !bhat_2+btil2
+        bhat_2= (hh+rr)*0.5d0   ;  bhat= DSQRT(bhat_2) ! bhat and btil are modules:
+        btil_2= (hh-rr)*0.5d0   ;  btil= DSQRT(btil_2) !their signs only matter in f1b and are accounted by qqsign
+
+
+        Chat=DCOSH(bhat) ; Ctil=DCOS(btil) ; Shat=DSINH(bhat) ; Stil=DSIN(btil)
+
+        exptau=DEXP(-tau)
+
+       !..................................................................... 
+        comfac=hh*tau
+        Fphat=bhat/tau   ; OFphat= 1.d0/((1.d0 - Fphat*Fphat)*comfac)
+        Fptil=btil/tau   ; OFptil= 1.d0/((1.d0 + Fptil*Fptil)*comfac)
+       !................................................................... 
+        !Special functions for PHI_1 
+        aux1=(1.d0-exptau*(Chat+Fphat*Shat))*OFphat !Ghat
+        aux2=(1.d0-exptau*(Ctil-Fptil*Stil))*OFptil !Gtil
+
+                g1= (btil_2*aux1 + bhat_2*aux2)
+                g2= (aux1 - aux2)
+        
+        aux1=(Fphat-exptau*(Shat+Fphat*Chat))*OFphat  !Ghat_prime
+        aux2=(Fptil-exptau*(Stil+Fptil*Ctil))*OFptil !Gtil_prime
+        
+                ga= -(bhat*aux1 + btil*aux2)  !for Lhat
+                gb= qqsign * (bhat*aux2- btil*aux1)   !for Ltil  -->defines signs
+
+
+    end subroutine get_phi1_gs
 !--------------------------------------------------------------
 ! Inversion of a 4x4 matrix
 !--------------------------------------------------------------

@@ -209,38 +209,53 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
     integer(c_int), intent(out) :: error
     !avoid setting eeini or othe var here, it will be remembered with attr save between calls to Hazel from Python
     integer ::  kk, kz, count, rate,ii, ee, eeini 
-    real(kind=8) ::  Start, End!, pkpipp(dn+1)
+    real(kind=8) ::  Start, End, oldI0(4,nl)!, pkpipp(dn+1)
+    logical:: first
 
+    !Initialize things
     identt4 = 0.d0  !init identity matrix for the whole ray
     do kk = 1, 4
         identt4(kk,kk) = 1.d0 
     enddo
-
-
     error_code = 0     ;synthesis_method=method!passes through vars
-    
     stkOut=stkIn    ;eeini=0
     if (dn/=0) eeini=1  !0 for dn=0 or 1 otherwise  
     ee=eeini ! ee=eeini  ; ii=ee-eeini+1   ;ee=ii+dn   with eeini=0 for dn=0 or 1 otherwise    
-    
+    first=.False.
 
     do kk=0,nsteps-1 !divides ray in pieces remain=mod(nz,dn)
         ii=ee-eeini+1     ;ee=ii+dn !init,end of pieces 
         !print*,ii,ee
 !       !preliminar: method 6 is M1 (M1-3p)
-                    !method 7 is M2 (M1-1p), ie, M1 but restricted
-                    !method 1 is Magnus Trap (M1-2p), M1 restricted to 2 points 
-        if (method==6 .or. method==7 .or. method==1) then
-        print*,ds(ii:ee)
-        call Magnus_FormSol_1(nl,dn+1,ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut)
-
-        else !add here standard non-Magnus methods including EvolOp
-
-        call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut) !efficient segmentation in stokes pars and ray pieces
+                    !method 7 is M0 (M1-1p), ie, M1 but restricted to piecewise
+                    !method 8 is Magnus Trap (M1-2p), M1 restricted to 2 points 
+                    !method 9 is Magnus with ORder 2 correction with 2 or 3 points
+        if (method==6 .or. method==7 .or. method==8 .or. method==9) then
+            if (method==9 .or. method==8) then
+                call Magnus_FormSol_2(nl,dn+1,ds(ii:ee),eps(:,ii:ee,1:4),&
+                    eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut)
+            else
+                call Magnus_FormSol_1(nl,dn+1,ds(ii:ee),eps(:,ii:ee,1:4),&
+                    eta(:,ii:ee,1:4),rho(:,ii:ee,1:3),stkOut)
+            endif
         
-        !call Magnus_FormSol_2(ee-ii+1,stkOut,nl,ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 
-        !    eta(:,ii:ee,1),eta(:,ii:ee,2),eta(:,ii:ee,3),eta(:,ii:ee,4),rho(:,ii:ee,1),rho(:,ii:ee,2), &
-        !    rho(:,ii:ee,3))
+        else !add here standard non-Magnus methods including EvolOp
+            !for delopar: pass 3 points (ee=ii+dn) but advance 1 by 1 (ii=ee-1=ii_updated-1)
+            if (method==15.or.method==2) then 
+                oldI0=stkOut !memory of solution for full delo-parabollic method
+                if (kk==0) then
+                    ii=1   ;ee=2
+                    first=.True.
+                else
+                    first=.False.
+                    ii=kk   ;ee=ii+2
+                endif
+            endif
+            !print*,ii,ee,kk
+            call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1:4),eta(:,ii:ee,1:4), &
+                rho(:,ii:ee,1:3),stkOut,oldI0,first) !efficient segmentation in stokes pars and ray pieces
+            
+            if (first) synthesis_method = method
         endif
         
         !call synth_methods(nl, ds(ii:ee),eps(:,ii:ee,1),eps(:,ii:ee,2),eps(:,ii:ee,3),eps(:,ii:ee,4),& 

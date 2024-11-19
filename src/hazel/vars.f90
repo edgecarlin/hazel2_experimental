@@ -93,10 +93,10 @@ implicit none
 	end type atom_model
 		
 	
-	type(variable_parameters) :: params(100), trial, scaled_params, errorparams
-	type(fixed_parameters) :: fixed(100)
-	type(type_observation) :: observation(100)
-	type(type_inversion) :: inversion(100)
+	type(variable_parameters) :: params(500), trial, scaled_params, errorparams
+	type(fixed_parameters) :: fixed(500)
+	type(type_observation) :: observation(500)
+	type(type_inversion) :: inversion(500)
 	type(atom_model) :: atom
 	
 	real(kind=8), parameter :: minim_pikaia(10) = (/0.d0, 0.d0, 0.d0, 0.d0, 0.d0, 0.d0, -15.d0, 0.d0, 0.d0, 0.d0/)
