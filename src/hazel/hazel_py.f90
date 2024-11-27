@@ -228,7 +228,7 @@ subroutine c_direct_synthesis(nl,nz,nsteps,dn,method, ds, eps, eta, rho, stkIn,&
         !print*,ii,ee
 !       !preliminar: method 6 is M1 (M1-3p)
                     !method 7 is M0 (M1-1p), ie, M1 but restricted to piecewise
-                    !method 8 is Magnus Trap (M1-2p), M1 restricted to 2 points 
+                    !method 8 is Magnus Trap (M2 - 2p), M2 (or M1) restricted to 2 points 
                     !method 9 is Magnus with ORder 2 correction with 2 or 3 points
         if (method==6 .or. method==7 .or. method==8 .or. method==9) then
             if (method==9 .or. method==8) then

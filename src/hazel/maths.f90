@@ -1180,6 +1180,16 @@ contains
 
     end subroutine dot_product_signF2
 
+    function matvecF1(mat, vec)    
+    real(kind=8) :: mat(:,:,:), vec(:,:), matvecF1(size(vec,1),4)
+    integer :: kk    
+
+        do kk=1,size(vec,1) !intended to be frequency dimension
+            matvecF1(kk,:) = matmul(mat(kk,:,:),vec(kk,:))
+        enddo
+        return 
+    end function matvecF1
+
     function matmulF3(m1, m2)    
     real(kind=8) :: m1(:,:,:), m2(:,:,:), matmulF3(4,4,size(m1,3))
     integer :: kk    
@@ -1193,11 +1203,11 @@ contains
 ! CAlculate cross product for all frequencies
 ! calling example:   crossp(etaZ(:,z_A,2:4),etaZ(:,z_B,2:4))
     function crossp(v1, v2)    
-    real(kind=8) :: v1(:,:), v2(:,:), crossprod(size(v1,1),3)
+    real(kind=8) :: v1(:,:), v2(:,:), crossp(size(v1,1),3)
 
-        crossprod(:,1) = -v1(:,3)*v2(:,2) +v1(:,2)*v2(:,3)
-        crossprod(:,2) = v1(:,3)*v2(:,1) -v1(:,1)*v2(:,3)
-        crossprod(:,3) = -v1(:,2)*v2(:,1) +v1(:,1)*v2(:,2)
+        crossp(:,1) = -v1(:,3)*v2(:,2) +v1(:,2)*v2(:,3)
+        crossp(:,2) = v1(:,3)*v2(:,1) -v1(:,1)*v2(:,3)
+        crossp(:,3) = -v1(:,2)*v2(:,1) +v1(:,1)*v2(:,2)
     
         return 
     end function crossp
@@ -1267,34 +1277,30 @@ contains
 ! inverse of propagation matrix, thus avoiding inverting a 4x4 matrix repeatedly
 !------------------------------------------------------------------------------
 
- subroutine fill_Lorentz_freqs(lorentz,alfa,beta,ii)
-    real(kind=8) :: lorentz(:,:,:), alfa(:), beta(:)
-    integer:: ii
-
-    if (ii ==1) then
+!-------
+ subroutine fill_Lorentz_freqs(lorentz,alfa,beta)
+    real(kind=8) :: lorentz(:,:,:), alfa(:,:), beta(:,:)
+    
         lorentz(:,1,1) = 0.d0
         lorentz(:,2,2) = 0.d0
         lorentz(:,3,3) = 0.d0
         lorentz(:,4,4) = 0.d0
-        lorentz(:,1,2) = alfa(:) !etaQ
-        lorentz(:,2,1) = alfa(:) !etaQ
-        lorentz(:,3,4) = beta(:)   !rhoQ       
-        lorentz(:,4,3) = -beta(:) !-rhoQ        
-    else
-        if (ii == 2) then
-            lorentz(:,1,3) = alfa(:) !etaU
-            lorentz(:,3,1) = alfa(:) !etaU
-            lorentz(:,2,4) = -beta(:) !-rhoU
-            lorentz(:,4,2) = beta(:)   !rhoU                    
-        else
-            lorentz(:,1,4) = alfa(:) !etaV
-            lorentz(:,4,1) = alfa(:) !etaV          
-            lorentz(:,2,3) = beta(:) !rhoV !here fortran column (first index) seems row in physical matrix
-            lorentz(:,3,2) = -beta(:) !-rhoV
-        endif
-    endif        
+        lorentz(:,1,2) = alfa(:,1) !etaQ
+        lorentz(:,2,1) = alfa(:,1) !etaQ
+        lorentz(:,3,4) = beta(:,1)   !rhoQ       
+        lorentz(:,4,3) = -beta(:,1) !-rhoQ        
+        
+            lorentz(:,1,3) = alfa(:,2) !etaU
+            lorentz(:,3,1) = alfa(:,2) !etaU
+            lorentz(:,2,4) = -beta(:,2) !-rhoU
+            lorentz(:,4,2) = beta(:,2)   !rhoU                    
+        
+            lorentz(:,1,4) = alfa(:,3) !etaV
+            lorentz(:,4,1) = alfa(:,3) !etaV          
+            lorentz(:,2,3) = beta(:,3) !rhoV !here fortran column (first index) seems row in physical matrix
+            lorentz(:,3,2) = -beta(:,3) !-rhoV
+                
  end subroutine fill_Lorentz_freqs
-!-------
 
 !----------------------------------------------------------------------------
 ! EDGAR: Subroutine giving the lorentz(4,4) matrix = propagation matrix - identity*etaI 

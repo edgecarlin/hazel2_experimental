@@ -50,11 +50,10 @@ contains
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
-            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
-            do ii=1,3 !Efficient calculation without matrix inversions
-                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
-                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
-            enddo    !Results are (kw, 4column,4row)
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies at once
+            call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,:),beta(:,:)) !return 4x4 Omega hat
+            call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,:),-alfa(:,:)) !return 4x4 Ometa tilde
+            !Results are (kw, 4column,4row)
 
             !Most efficient way I have found to exchange dimensions for speeding up last step
             !$OMP PARALLEL DO !--> try later
@@ -138,11 +137,10 @@ contains
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
-            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
-            do ii=1,3 !Efficient calculation without matrix inversions
-                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
-                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
-            enddo    !Results are (kw, 4column,4row)
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies at once
+            call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,:),beta(:,:)) !return 4x4 Omega hat
+            call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,:),-alfa(:,:)) !return 4x4 Ometa tilde
+            !Results are (kw, 4column,4row)
 
             !Most efficient way I have found to exchange dimensions for speeding up last step
             !$OMP PARALLEL DO !--> try later
@@ -195,7 +193,7 @@ contains
     real(kind=8),intent(inout) :: stoks(:,:)
 
     real(kind=8) ::pkpipp(np) !pk,pi
-    real(kind=8),dimension(nl,4,4) :: omhat,omtil, evolop  !,intent(out)
+    real(kind=8),dimension(nl,4,4) :: omhat,omtil, Lorhati, Lorhatj !evolop  !,intent(out)
     real(kind=8) :: alfa(nl,3),beta(nl,3),emis(nl,4), alfa2(nl,3),beta2(nl,3)!coef(0:10,nl)
     real(kind=8),dimension(4,4,nl) :: fomhat,fomhat2,fomtil,fevolop,phi1
     real(kind=8) :: tau(nl),qq(nl),rr(nl),corr
@@ -222,6 +220,7 @@ contains
             emis(:,4) = MATMUL(epsZ(:,:,4),pkpipp)
 
     !...............APPLY ORDER 2 MAGNUS EXPANSION..............................
+    !Much room for accelerating this method by just reordering dimensions
     !fill cross products to get order-2 corrections alfa2,beta2 and add them to alfa and beta 
     !limiting heights for the commutator depends on the number of points
     ii=1 ;jj=np 
@@ -235,17 +234,17 @@ contains
     corr= -(corr*corr)/12.d0 !here goes the total DeltaS of the interval
     beta(:,:)=beta(:,:)+corr*(crossp(etaZ(:,ii,2:4),etaZ(:,jj,2:4))-crossp(roZ(:,ii,1:3),roZ(:,jj,1:3)) )
     alfa(:,:)=alfa(:,:)+corr*(crossp(etaZ(:,jj,2:4),roZ(:,ii,1:3))-crossp(etaZ(:,ii,2:4),roZ(:,jj,1:3)) )
-    !beta2(:,1:3)=crossprod(etaZ(:,ii,2:4),etaZ(:,jj,2:4)) -crossprod(roZ(:,ii,1:3),roZ(:,jj,1:3)) 
-    !alfa2(:,1:3)=crossprod(etaZ(:,jj,2:4),roZ(:,ii,1:3)) -crossprod(etaZ(:,ii,2:4),roZ(:,jj,1:3)) 
-    !beta(:,:)=beta(:,:)+corr*beta2(:,:)    ;alfa(:,:)=alfa(:,:)+corr*alfa2(:,:)
 
+    !Magnus correction for the source term
+    call fill_Lorentz_freqs(Lorhati(:,:,:),etaZ(:,ii,2:4),roZ(:,ii,:))
+    call fill_Lorentz_freqs(Lorhatj(:,:,:),etaZ(:,jj,2:4),roZ(:,jj,:))
+    emis(:,1:4)=emis(:,1:4) - corr*(matvecF1(Lorhati(:,:,:),epsZ(:,jj,:)) - matvecF1(Lorhatj(:,:,:),epsZ(:,ii,:)) )
     !........BUILD LORENTZ MATRICES................................................
 
-            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
-            do ii=1,3 !Efficient calculation without matrix inversions
-                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
-                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
-            enddo    !Results are (kw, 4column,4row)
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies at once
+            call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,:),beta(:,:)) !return 4x4 Omega hat
+            call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,:),-alfa(:,:)) !return 4x4 Ometa tilde
+            !Results are (kw, 4column,4row)
 
             !Most efficient way I have found to exchange dimensions for speeding up last step
             !$OMP PARALLEL DO !--> try later
@@ -349,11 +348,11 @@ contains
     !.....................................................................
     !FULL EXACT MAGNUS EVOLUTION OPERATOR UNTIL ORDER 1
 
-            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies
-            do ii=1,3 !Efficient calculation without matrix inversions
-                call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,ii),beta(:,ii),ii) !return 4x4 Omega hat
-                call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,ii),-alfa(:,ii),ii) !return 4x4 Ometa tilde
-            enddo    !Results are (kw, 4column,4row)
+            !Build Omega-hat (Lorentz hat) and Omega-tilde (Lorentz tilde) for all frequencies at once
+            call fill_Lorentz_freqs(Omhat(:,:,:),alfa(:,:),beta(:,:)) !return 4x4 Omega hat
+            call fill_Lorentz_freqs(Omtil(:,:,:),beta(:,:),-alfa(:,:)) !return 4x4 Ometa tilde
+            !Results are (kw, 4column,4row)
+
             !Most efficient way I have found to exchange dimensions for speeding up last step
             !invomhat= reshape(Omhat, shape(invomhat), order = [2,3,1]) 
             !$OMP PARALLEL DO --> try this
